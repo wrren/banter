@@ -1,7 +1,9 @@
 package llm
 
+type ModelID string
+
 type Model struct {
-	ID          string
+	ID          ModelID
 	Name        string
 	ContextSize int
 }

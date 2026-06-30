@@ -110,7 +110,7 @@ func (p *Provider) ListModels() ([]llm.Model, error) {
 	models := make([]llm.Model, 0, len(modelsResponse.Data))
 	for _, m := range modelsResponse.Data {
 		models = append(models, llm.Model{
-			ID:          m.ID,
+			ID:          llm.ModelID(m.ID),
 			Name:        core.FirstOrDefault(m.Aliases, m.ID),
 			ContextSize: m.Status.GetContextSize(DefaultContextSize),
 		})
