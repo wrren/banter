@@ -1,5 +1,7 @@
 package openai
 
-func SendCompletion(baseURL string) error {
-	return nil
+import "github.com/wrren/banter/llm"
+
+func SendCompletion(baseURL, apiKey string, session *llm.Session) ([]llm.Message, error) {
+	return nil, nil
 }

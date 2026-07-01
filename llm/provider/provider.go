@@ -6,17 +6,20 @@ import (
 	"github.com/wrren/banter/llm/provider/llamacpp"
 )
 
+type ProviderID string
+
 type Provider interface {
 	ListModels() ([]llm.Model, error)
+	Complete(session *llm.Session) ([]llm.Message, error)
 }
 
 type ProviderRegistry struct {
-	Providers map[string]Provider
+	Providers map[ProviderID]Provider
 }
 
 func NewRegistry(cfg []config.ProviderConfig) (*ProviderRegistry, error) {
 	registry := ProviderRegistry{
-		Providers: make(map[string]Provider),
+		Providers: make(map[ProviderID]Provider),
 	}
 
 	for _, p := range cfg {
@@ -26,9 +29,14 @@ func NewRegistry(cfg []config.ProviderConfig) (*ProviderRegistry, error) {
 			if err != nil {
 				return nil, err
 			}
-			registry.Providers[p.Name] = provider
+			registry.Providers[ProviderID(p.Name)] = provider
 		}
 	}
 
 	return &registry, nil
+}
+
+func (p ProviderRegistry) GetProviderByID(id ProviderID) (Provider, bool) {
+	provider, ok := p.Providers[id]
+	return provider, ok
 }

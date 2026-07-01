@@ -12,6 +12,7 @@ import (
 	"github.com/wrren/banter/config"
 	"github.com/wrren/banter/core"
 	"github.com/wrren/banter/llm"
+	"github.com/wrren/banter/llm/provider/openai"
 )
 
 const (
@@ -117,4 +118,8 @@ func (p *Provider) ListModels() ([]llm.Model, error) {
 	}
 
 	return models, nil
+}
+
+func (p *Provider) Complete(session *llm.Session) ([]llm.Message, error) {
+	return openai.SendCompletion(p.baseURL, "", session)
 }
