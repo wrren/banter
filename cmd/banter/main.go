@@ -1,9 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/wrren/banter/config"
 	"github.com/wrren/banter/llm"
@@ -21,20 +21,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if len(os.Args) < 2 {
-		fmt.Println("please submit a query")
-		os.Exit(1)
-	}
-
-	sb := strings.Builder{}
-	for i, t := range os.Args {
-		if i == 0 {
-			continue
-		}
-		sb.WriteString(" ")
-		sb.WriteString(t)
-	}
-
 	registry, err := provider.NewRegistry(cfg.Providers)
 	if err != nil {
 		fmt.Printf("error while loading provider registry: %v", err)
@@ -50,32 +36,49 @@ func main() {
 	model := llm.ModelID("ornith-35b")
 
 	session := &llm.Session{
-		ModelID: model,
-		Prompt:  systemPrompt,
-		Messages: []llm.Message{
-			{
-				Source: llm.MessageSourceUser,
-				Content: llm.Content{
-					Parts: []llm.ContentPart{
-						llm.TextPart{Type: "text", Text: sb.String()},
+		ModelID:  model,
+		Prompt:   systemPrompt,
+		Messages: []llm.Message{},
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		fmt.Print("> ")
+
+		msg, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Printf("error while reading from stdin: %v\n", err)
+			os.Exit(1)
+		}
+
+		session.Messages = append(session.Messages, llm.Message{
+			Source: llm.MessageSourceUser,
+			Content: llm.Content{
+				Parts: []llm.ContentPart{
+					llm.TextPart{
+						Type: "text",
+						Text: msg,
 					},
 				},
 			},
-		},
-	}
+		})
 
-	messages, err := provider.Complete(session)
-	if err != nil {
-		fmt.Printf("error during chat completion: %v\n", err)
-		os.Exit(1)
-	}
+		messages, err := provider.Complete(session)
+		if err != nil {
+			fmt.Printf("error during chat completion: %v\n", err)
+			os.Exit(1)
+		}
 
-	for _, m := range messages {
-		for _, p := range m.Content.Parts {
-			switch x := p.(type) {
-			case llm.TextPart:
-				fmt.Println(x.Text)
+		for _, m := range messages {
+			for _, p := range m.Content.Parts {
+				switch x := p.(type) {
+				case llm.TextPart:
+					fmt.Printf("\n\033[33m%s\033[0m\n\n", x.Text)
+				}
 			}
 		}
+
+		session.Messages = append(session.Messages, messages...)
 	}
 }
