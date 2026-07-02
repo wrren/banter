@@ -1,12 +1,16 @@
 package provider
 
 import (
+	"errors"
+
 	"github.com/wrren/banter/config"
 	"github.com/wrren/banter/llm"
 	"github.com/wrren/banter/llm/provider/llamacpp"
 )
 
 type ProviderID string
+
+var ErrProviderNotFound = errors.New("provider not found")
 
 type Provider interface {
 	ListModels() ([]llm.Model, error)

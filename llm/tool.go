@@ -15,7 +15,7 @@ type ToolCall struct {
 }
 
 type ToolResult struct {
-	ToolCallID string         `json:"tool_call_id"`
-	Succeeded  bool           `json:"succeeded"`
-	Result     map[string]any `json:"result"`
+	ToolCallID string `json:"tool_call_id"`
+	Succeeded  bool   `json:"succeeded"`
+	Result     any    `json:"result"`
 }

@@ -6,23 +6,25 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/wrren/banter/llm"
+	"github.com/wrren/banter/tools"
 )
 
 type openaiMessage struct {
-	Role      string          `json:"role"`
-	Content   interface{}     `json:"content"`
-	Name      string          `json:"name,omitempty"`
-	ToolCalls []toolCall      `json:"tool_calls,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
+	Role       string      `json:"role"`
+	Content    interface{} `json:"content"`
+	Name       string      `json:"name,omitempty"`
+	ToolCalls  []toolCall  `json:"tool_calls,omitempty"`
+	ToolCallID string      `json:"tool_call_id,omitempty"`
 }
 
 type toolCall struct {
-	ID       string        `json:"id"`
-	Type     string        `json:"type"`
-	Function functionCall  `json:"function"`
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function functionCall `json:"function"`
 }
 
 type functionCall struct {
@@ -31,42 +33,42 @@ type functionCall struct {
 }
 
 type openaiTool struct {
-	Type     string        `json:"type"`
+	Type     string         `json:"type"`
 	Function openaiFunction `json:"function"`
 }
 
 type openaiFunction struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	Parameters  map[string]interface{} `json:"parameters"`
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Parameters  tools.ArgsSchema `json:"parameters"`
 }
 
 type chatCompletionRequest struct {
-	Model    string      `json:"model"`
-	Messages []openaiMessage `json:"messages"`
-	Tools    []openaiTool    `json:"tools,omitempty"`
-	ToolChoice interface{} `json:"tool_choice,omitempty"`
+	Model      string          `json:"model"`
+	Messages   []openaiMessage `json:"messages"`
+	Tools      []openaiTool    `json:"tools,omitempty"`
+	ToolChoice interface{}     `json:"tool_choice,omitempty"`
 }
 
 type chatCompletionResponse struct {
-	ID      string   `json:"id"`
-	Object  string   `json:"object"`
-	Created int64    `json:"created"`
-	Model   string   `json:"model"`
-	Choices []choice `json:"choices"`
+	ID      string    `json:"id"`
+	Object  string    `json:"object"`
+	Created int64     `json:"created"`
+	Model   string    `json:"model"`
+	Choices []choice  `json:"choices"`
 	Error   *apiError `json:"error,omitempty"`
 }
 
 type choice struct {
-	Index        int             `json:"index"`
-	Message      openaiMessage   `json:"message"`
-	FinishReason string          `json:"finish_reason"`
-	LogProbs     interface{}     `json:"logprobs"`
+	Index        int           `json:"index"`
+	Message      openaiMessage `json:"message"`
+	FinishReason string        `json:"finish_reason"`
+	LogProbs     interface{}   `json:"logprobs"`
 }
 
 type apiError struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
+	Message string      `json:"message"`
+	Type    string      `json:"type"`
 	Code    interface{} `json:"code"`
 }
 
@@ -85,24 +87,21 @@ func SendCompletion(baseURL, apiKey string, session *llm.Session) ([]llm.Message
 		messages = append(messages, om)
 	}
 
-	var tools []openaiTool
-	if len(session.Tools) > 0 {
-		tools = make([]openaiTool, 0, len(session.Tools))
-		for _, tool := range session.Tools {
-			tools = append(tools, openaiTool{
-				Type: "function",
-				Function: openaiFunction{
-					Name:       tool.Name,
-					Parameters: tool.ArgSchema,
-				},
-			})
-		}
+	var openaiTools []openaiTool
+	for n, t := range session.Tools.Tools() {
+		openaiTools = append(openaiTools, openaiTool{
+			Type: "function",
+			Function: openaiFunction{
+				Name:       n,
+				Parameters: t.ArgsSchema(),
+			},
+		})
 	}
 
 	reqBody := chatCompletionRequest{
 		Model:    string(session.ModelID),
 		Messages: messages,
-		Tools:    tools,
+		Tools:    openaiTools,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -153,31 +152,51 @@ func SendCompletion(baseURL, apiKey string, session *llm.Session) ([]llm.Message
 }
 
 func messageToOpenAI(msg llm.Message) openaiMessage {
-	switch msg.Source {
-	case llm.MessageSourceUser:
+	switch m := msg.(type) {
+	case llm.UserMessage:
 		return openaiMessage{
 			Role:    "user",
-			Content: contentToInterface(msg.Content),
+			Content: contentToOpenAIContent(m.Content),
 		}
-	case llm.MessageSourceAgent:
+	case llm.DeveloperMessage:
 		return openaiMessage{
-			Role:    "assistant",
-			Content: contentToInterface(msg.Content),
+			Role:    "system",
+			Content: m.Content,
 		}
-	case llm.MessageSourceToolResult:
+	case llm.AssistantMessage:
+		om := openaiMessage{
+			Role: "assistant",
+		}
+		if m.Content != nil {
+			om.Content = *m.Content
+		}
+		if len(m.ToolCalls) > 0 {
+			om.ToolCalls = make([]toolCall, 0, len(m.ToolCalls))
+			for _, tc := range m.ToolCalls {
+				argsJSON, _ := json.Marshal(tc.Args)
+				om.ToolCalls = append(om.ToolCalls, toolCall{
+					ID:       tc.ID,
+					Type:     "function",
+					Function: functionCall{Name: string(tc.ToolID), Arguments: string(argsJSON)},
+				})
+			}
+		}
+		return om
+	case llm.ToolMessage:
 		return openaiMessage{
-			Role:    "tool",
-			Content: contentToInterface(msg.Content),
+			Role:       "tool",
+			Content:    m.Content,
+			ToolCallID: m.ToolCallID,
 		}
 	default:
 		return openaiMessage{
 			Role:    "user",
-			Content: contentToInterface(msg.Content),
+			Content: "",
 		}
 	}
 }
 
-func contentToInterface(c llm.Content) interface{} {
+func contentToOpenAIContent(c llm.UserContent) interface{} {
 	if len(c.Parts) == 0 {
 		return ""
 	}
@@ -196,13 +215,6 @@ func contentToInterface(c llm.Content) interface{} {
 				"type": "text",
 				"text": v.Text,
 			})
-		case llm.ImagePart:
-			parts = append(parts, map[string]interface{}{
-				"type": "image_url",
-				"image_url": map[string]interface{}{
-					"url": fmt.Sprintf("data:image/jpeg;base64,%s", v.Base64Content),
-				},
-			})
 		}
 	}
 
@@ -210,37 +222,41 @@ func contentToInterface(c llm.Content) interface{} {
 }
 
 func openAIMessageToResult(msg openaiMessage) llm.Message {
-	result := llm.Message{
-		Source: llm.MessageSourceAgent,
+	if len(msg.ToolCalls) > 0 {
+		toolCalls := make([]llm.ToolCall, 0, len(msg.ToolCalls))
+		for _, tc := range msg.ToolCalls {
+			var args map[string]any
+			_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+			toolCalls = append(toolCalls, llm.ToolCall{
+				ID:     tc.ID,
+				ToolID: llm.ToolID(tc.Function.Name),
+				Args:   args,
+			})
+		}
+		return llm.NewAssistantMessageWithToolCalls(toolCalls)
 	}
 
-	if msg.Content != nil {
-		switch v := msg.Content.(type) {
-		case string:
-			result.Content.Parts = []llm.ContentPart{llm.TextPart{Type: "text", Text: v}}
-		case []interface{}:
-			for _, p := range v {
-				pm, ok := p.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				switch pm["type"] {
-				case "text":
-					if text, ok := pm["text"].(string); ok {
-						result.Content.Parts = append(result.Content.Parts, llm.TextPart{Type: "text", Text: text})
-					}
-				case "image_url":
-					img, ok := pm["image_url"].(map[string]interface{})
-					if !ok {
-						continue
-					}
-					if url, ok := img["url"].(string); ok {
-						result.Content.Parts = append(result.Content.Parts, llm.ImagePart{Type: "image_url", Base64Content: url})
-					}
+	switch v := msg.Content.(type) {
+	case string:
+		return llm.NewAssistantMessage(v)
+	case []interface{}:
+		var textParts []string
+		for _, p := range v {
+			pm, ok := p.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			switch pm["type"] {
+			case "text":
+				if text, ok := pm["text"].(string); ok {
+					textParts = append(textParts, text)
 				}
 			}
 		}
+		if len(textParts) > 0 {
+			return llm.NewAssistantMessage(strings.Join(textParts, ""))
+		}
 	}
 
-	return result
+	return llm.NewAssistantMessage("")
 }

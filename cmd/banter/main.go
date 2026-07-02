@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 
+	"charm.land/glamour/v2"
 	"github.com/wrren/banter/config"
 	"github.com/wrren/banter/llm"
 	"github.com/wrren/banter/llm/provider"
+	"github.com/wrren/banter/tools"
 )
 
 var systemPrompt llm.SystemPrompt = llm.SystemPrompt{
@@ -34,11 +36,23 @@ func main() {
 	}
 
 	model := llm.ModelID("ornith-35b")
+	toolRegistry := tools.NewToolsRegistry()
+	toolRegistry.Register(tools.NewBraveSearch(os.Getenv("BRAVE_SEARCH_API_KEY")))
+	toolRegistry.SetFactory(func(name string, config map[string]any) (tools.Tool, error) {
+		switch name {
+		case "brave_search":
+			key, _ := config["api_key"].(string)
+			return tools.NewBraveSearch(key), nil
+		default:
+			return nil, fmt.Errorf("unknown tool: %s", name)
+		}
+	})
 
 	session := &llm.Session{
 		ModelID:  model,
 		Prompt:   systemPrompt,
 		Messages: []llm.Message{},
+		Tools:    *toolRegistry,
 	}
 
 	reader := bufio.NewReader(os.Stdin)
@@ -52,17 +66,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		session.Messages = append(session.Messages, llm.Message{
-			Source: llm.MessageSourceUser,
-			Content: llm.Content{
-				Parts: []llm.ContentPart{
-					llm.TextPart{
-						Type: "text",
-						Text: msg,
-					},
-				},
-			},
-		})
+		session.AppendUserTextMessage(msg)
 
 		messages, err := provider.Complete(session)
 		if err != nil {
@@ -71,10 +75,13 @@ func main() {
 		}
 
 		for _, m := range messages {
-			for _, p := range m.Content.Parts {
-				switch x := p.(type) {
-				case llm.TextPart:
-					fmt.Printf("\n\033[33m%s\033[0m\n\n", x.Text)
+			switch msg := m.(type) {
+			case llm.AssistantMessage:
+				if msg.Content != nil {
+					out, err := glamour.Render(*msg.Content, "dark")
+					if err == nil {
+						fmt.Println(out)
+					}
 				}
 			}
 		}

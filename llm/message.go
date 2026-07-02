@@ -2,16 +2,89 @@ package llm
 
 import "encoding/json"
 
-type MessageSource int
+type MessageRole string
 
 const (
-	MessageSourceUser       MessageSource = iota
-	MessageSourceAgent      MessageSource = iota
-	MessageSourceToolResult MessageSource = iota
+	MessageRoleDeveloper MessageRole = "developer"
+	MessageRoleUser      MessageRole = "user"
+	MessageRoleAssistant MessageRole = "assistant"
+	MessageRoleTool      MessageRole = "tool"
 )
 
-type ContentPart interface {
-	isContentPart()
+type Message interface {
+	GetRole() MessageRole
+}
+
+type MessageList []Message
+
+func (ml MessageList) MarshalJSON() ([]byte, error) {
+	raw := make([]json.RawMessage, 0, len(ml))
+	for _, msg := range ml {
+		b, err := json.Marshal(msg)
+		if err != nil {
+			return nil, err
+		}
+		raw = append(raw, b)
+	}
+	return json.Marshal(raw)
+}
+
+func (ml MessageList) UnmarshalJSON(data []byte) error {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for _, r := range raw {
+		var envelope struct {
+			Role MessageRole `json:"role"`
+		}
+		if err := json.Unmarshal(r, &envelope); err != nil {
+			return err
+		}
+		var msg Message
+		switch envelope.Role {
+		case MessageRoleUser:
+			var m UserMessage
+			if err := json.Unmarshal(r, &m); err != nil {
+				return err
+			}
+			msg = m
+		case MessageRoleDeveloper:
+			var m DeveloperMessage
+			if err := json.Unmarshal(r, &m); err != nil {
+				return err
+			}
+			msg = m
+		case MessageRoleAssistant:
+			var m AssistantMessage
+			if err := json.Unmarshal(r, &m); err != nil {
+				return err
+			}
+			msg = m
+		case MessageRoleTool:
+			var m ToolMessage
+			if err := json.Unmarshal(r, &m); err != nil {
+				return err
+			}
+			msg = m
+		default:
+			var m UserMessage
+			if err := json.Unmarshal(r, &m); err != nil {
+				return err
+			}
+			msg = m
+		}
+		ml = append(ml, msg)
+	}
+	return nil
+}
+
+type UserContent struct {
+	Parts []UserContentPart `json:"parts"`
+}
+
+type UserContentPart interface {
+	isUserContentPart()
 }
 
 type TextPart struct {
@@ -19,72 +92,87 @@ type TextPart struct {
 	Text string `json:"text"`
 }
 
-func (t TextPart) isContentPart() {}
+func (t TextPart) isUserContentPart() {}
 
-type ImagePart struct {
-	Type          string `json:"type"`
-	Base64Content string `json:"image"`
+type UserMessage struct {
+	Role    MessageRole `json:"role"`
+	Content UserContent `json:"content"`
 }
 
-func (i ImagePart) isContentPart() {}
-
-type Content struct {
-	Parts []ContentPart
+func NewUserMessage(content string) UserMessage {
+	return UserMessage{
+		Role: MessageRoleUser,
+		Content: UserContent{
+			Parts: []UserContentPart{
+				TextPart{
+					Type: "text",
+					Text: content,
+				},
+			},
+		},
+	}
 }
 
-func (c *Content) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err == nil {
-		c.Parts = []ContentPart{TextPart{Type: "text", Text: s}}
-		return nil
-	}
-
-	c.Parts = make([]ContentPart, 0)
-	var raw []json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	for _, r := range raw {
-		var probe struct {
-			Type string `json:"type"`
-		}
-
-		if err := json.Unmarshal(r, &probe); err != nil {
-			return err
-		}
-
-		switch probe.Type {
-		case "text":
-			var p TextPart
-			if err := json.Unmarshal(r, &p); err != nil {
-				return err
-			}
-			c.Parts = append(c.Parts, p)
-
-		case "image":
-			var i ImagePart
-			if err := json.Unmarshal(r, &i); err != nil {
-				return err
-			}
-			c.Parts = append(c.Parts, i)
-		}
-	}
-
-	return nil
+func (u UserMessage) GetRole() MessageRole {
+	return MessageRoleUser
 }
 
-func (c Content) MarshalJSON() ([]byte, error) {
-	if len(c.Parts) == 1 {
-		if tp, ok := c.Parts[0].(TextPart); ok {
-			return json.Marshal(tp.Text)
-		}
-	}
-
-	return json.Marshal(c.Parts)
+type DeveloperMessage struct {
+	Role    MessageRole `json:"role"`
+	Content string      `json:"content"`
 }
 
-type Message struct {
-	Source  MessageSource `json:"source"`
-	Content Content       `json:"content"`
+func NewDeveloperMessage(content string) DeveloperMessage {
+	return DeveloperMessage{
+		Role:    MessageRoleDeveloper,
+		Content: content,
+	}
+}
+
+func (d DeveloperMessage) GetRole() MessageRole {
+	return MessageRoleDeveloper
+}
+
+type AssistantMessage struct {
+	Role      MessageRole `json:"role"`
+	Content   *string     `json:"content"`
+	ToolCalls []ToolCall  `json:"tool_calls"`
+}
+
+func NewAssistantMessage(content string) AssistantMessage {
+	return AssistantMessage{
+		Role:    MessageRoleAssistant,
+		Content: &content,
+	}
+}
+
+func NewAssistantMessageWithToolCalls(toolCalls []ToolCall) AssistantMessage {
+	return AssistantMessage{
+		Role:      MessageRoleAssistant,
+		Content:   nil,
+		ToolCalls: toolCalls,
+	}
+}
+
+func (a AssistantMessage) GetRole() MessageRole {
+	return MessageRoleAssistant
+}
+
+type ToolMessage struct {
+	Role       MessageRole `json:"role"`
+	Content    string      `json:"content"`
+	ToolCallID string      `json:"tool_call_id"`
+}
+
+func NewToolMessage(result ToolResult) ToolMessage {
+	content, _ := json.Marshal(result)
+	return ToolMessage{
+		Role:       MessageRoleTool,
+		Content:    string(content),
+		ToolCallID: result.ToolCallID,
+	}
+}
+
+func (t ToolMessage) GetRole() MessageRole {
+	return MessageRoleTool
 }
