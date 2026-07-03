@@ -30,15 +30,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	provider, ok := registry.GetProviderByID("barbatos")
-	if !ok {
-		fmt.Println("failed to find provider")
-		os.Exit(1)
-	}
-
 	model := llm.ModelID("ornith-35b")
 	toolRegistry := tools.NewToolsRegistry()
 	toolRegistry.Register(tools.NewBraveSearch(os.Getenv("BRAVE_SEARCH_API_KEY")))
+	toolRegistry.Register(tools.NewWebFetch())
 	toolRegistry.SetFactory(func(name string, config map[string]any) (tools.Tool, error) {
 		switch name {
 		case "brave_search":
@@ -58,35 +53,50 @@ func main() {
 
 	reader := bufio.NewReader(os.Stdin)
 
-	for {
-		fmt.Print("> ")
+	conversation := llm.NewConversation("barbatos", session)
+	handle, err := conversation.StartConversation(registry, toolRegistry)
+	if err != nil {
+		fmt.Printf("error while starting conversation: %v\n", err)
+		os.Exit(1)
+	}
 
-		msg, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Printf("error while reading from stdin: %v\n", err)
-			os.Exit(1)
+	msg := ""
+	if len(os.Args) > 1 {
+		msg = os.Args[1]
+	}
+
+	go func() {
+		for {
+			fmt.Print("> ")
+			msg, err = reader.ReadString('\n')
+			if err != nil {
+				fmt.Printf("error while reading from stdin: %v\n", err)
+				handle.End()
+				return
+			}
+			handle.Send(llm.NewUserMessage(msg))
 		}
+	}()
 
-		session.AppendUserTextMessage(msg)
-
-		messages, err := provider.Complete(session)
-		if err != nil {
-			fmt.Printf("error during chat completion: %v\n", err)
-			os.Exit(1)
-		}
-
-		for _, m := range messages {
-			switch msg := m.(type) {
-			case llm.AssistantMessage:
-				if msg.Content != nil {
-					out, err := glamour.Render(*msg.Content, "dark")
-					if err == nil {
-						fmt.Println(out)
-					}
+	for m := range handle.Out() {
+		switch msg := m.(type) {
+		case llm.AssistantMessage:
+			if msg.Content != nil {
+				out, err := glamour.Render(*msg.Content, "dark")
+				if err == nil {
+					fmt.Println(out)
+				}
+			}
+			if len(msg.ToolCalls) > 0 {
+				for _, tc := range msg.ToolCalls {
+					fmt.Printf("Agent invoked tool %s\n", tc.ToolID)
 				}
 			}
 		}
+	}
 
-		session.Messages = append(session.Messages, messages...)
+	for e := range handle.Err() {
+		fmt.Printf("error during conversation: %v\n", e)
+		os.Exit(1)
 	}
 }

@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"context"
+
 	"github.com/wrren/banter/tools"
 )
 
@@ -81,7 +83,7 @@ func (h *Handle) Done() <-chan struct{} {
 	return h.done
 }
 
-func (c *Conversation) StartConversation(providerRegistry ProviderRegistry, toolRegistry tools.ToolsRegistry) (*Handle, error) {
+func (c *Conversation) StartConversation(providerRegistry *ProviderRegistry, toolRegistry *tools.ToolsRegistry) (*Handle, error) {
 	p, ok := providerRegistry.GetProviderByID(c.ProviderID)
 	if !ok {
 		return nil, ErrProviderNotFound
@@ -94,12 +96,12 @@ func (c *Conversation) StartConversation(providerRegistry ProviderRegistry, tool
 		done:   make(chan struct{}),
 	}
 
-	go c.run(p, h)
+	go c.run(p, toolRegistry, h)
 
 	return h, nil
 }
 
-func (c *Conversation) run(p Provider, h *Handle) {
+func (c *Conversation) run(p Provider, t *tools.ToolsRegistry, h *Handle) {
 	defer close(h.done)
 	defer close(h.out)
 
@@ -142,6 +144,36 @@ func (c *Conversation) run(p Provider, h *Handle) {
 			c.Session.Messages = append(c.Session.Messages, res.messages...)
 			for _, m := range res.messages {
 				h.out <- m
+
+				switch mt := m.(type) {
+				case AssistantMessage:
+					if len(mt.ToolCalls) > 0 && t != nil {
+						for _, tc := range mt.ToolCalls {
+							tool, err := t.Get(string(tc.ToolID))
+							if err != nil {
+								h.err <- err
+								return
+							}
+
+							res, err := tool.Invoke(context.Background(), tc.Args)
+							if err != nil {
+								h.err <- err
+								return
+							}
+
+							msg := NewToolMessage(ToolResult{
+								ToolCallID: tc.ID,
+								Succeeded:  true,
+								Result:     res,
+							})
+
+							c.Session.Messages = append(c.Session.Messages, msg)
+
+							h.out <- msg
+						}
+						complete()
+					}
+				}
 			}
 
 			if len(queue) > 0 {

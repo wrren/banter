@@ -35,10 +35,10 @@ func (b *BraveSearch) Description() string {
 func (b *BraveSearch) ArgsSchema() ArgsSchema {
 	return ArgsSchema{
 		Type:                 "object",
-		Required:             []string{"q"},
+		Required:             []string{"query"},
 		AdditionalProperties: false,
 		Properties: map[string]any{
-			"q": map[string]string{
+			"query": map[string]string{
 				"type":        "string",
 				"description": "Search Query",
 			},
@@ -65,7 +65,6 @@ func (b *BraveSearch) Invoke(ctx context.Context, args map[string]any) (any, err
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Accept-Encoding", "gzip")
 	req.Header.Set("X-Subscription-Token", b.apiKey)
 	q := req.URL.Query()
 	q.Set("q", parsed.Query)
@@ -83,24 +82,24 @@ func (b *BraveSearch) Invoke(ctx context.Context, args map[string]any) (any, err
 	}
 
 	var result struct {
-		WebResults struct {
+		Web struct {
 			Results []struct {
 				Title   string `json:"title"`
 				URL     string `json:"url"`
-				Excerpt string `json:"snippet"`
+				Snippet string `json:"snippet"`
 			} `json:"results"`
-		} `json:"web_results"`
+		} `json:"web"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	snippets := make([]map[string]any, 0, len(result.WebResults.Results))
-	for _, r := range result.WebResults.Results {
+	snippets := make([]map[string]any, 0, len(result.Web.Results))
+	for _, r := range result.Web.Results {
 		snippets = append(snippets, map[string]any{
 			"title":   r.Title,
 			"url":     r.URL,
-			"excerpt": r.Excerpt,
+			"excerpt": r.Snippet,
 		})
 	}
 
