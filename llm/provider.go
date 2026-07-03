@@ -1,20 +1,22 @@
-package provider
+package llm
 
 import (
 	"errors"
 
 	"github.com/wrren/banter/config"
-	"github.com/wrren/banter/llm"
-	"github.com/wrren/banter/llm/provider/llamacpp"
 )
 
 type ProviderID string
 
 var ErrProviderNotFound = errors.New("provider not found")
 
+type ProviderConstructor func(cfg *config.ProviderConfig) (Provider, error)
+
+var Providers map[string]ProviderConstructor = make(map[string]ProviderConstructor)
+
 type Provider interface {
-	ListModels() ([]llm.Model, error)
-	Complete(session *llm.Session) ([]llm.Message, error)
+	ListModels() ([]Model, error)
+	Complete(session *Session) ([]Message, error)
 }
 
 type ProviderRegistry struct {
@@ -27,14 +29,16 @@ func NewRegistry(cfg []config.ProviderConfig) (*ProviderRegistry, error) {
 	}
 
 	for _, p := range cfg {
-		switch p.Type {
-		case llamacpp.ProviderType:
-			provider, err := llamacpp.NewProvider(p)
-			if err != nil {
-				return nil, err
-			}
-			registry.Providers[ProviderID(p.Name)] = provider
+		constructor, ok := Providers[p.Type]
+		if !ok {
+			return nil, ErrProviderNotFound
 		}
+
+		provider, err := constructor(&p)
+		if err != nil {
+			return nil, err
+		}
+		registry.Providers[ProviderID(p.Name)] = provider
 	}
 
 	return &registry, nil

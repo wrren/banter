@@ -8,8 +8,9 @@ import (
 	"charm.land/glamour/v2"
 	"github.com/wrren/banter/config"
 	"github.com/wrren/banter/llm"
-	"github.com/wrren/banter/llm/provider"
 	"github.com/wrren/banter/tools"
+
+	_ "github.com/wrren/banter/llm/providers"
 )
 
 var systemPrompt llm.SystemPrompt = llm.SystemPrompt{
@@ -23,7 +24,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	registry, err := provider.NewRegistry(cfg.Providers)
+	registry, err := llm.NewRegistry(cfg.Providers)
 	if err != nil {
 		fmt.Printf("error while loading provider registry: %v", err)
 		os.Exit(1)

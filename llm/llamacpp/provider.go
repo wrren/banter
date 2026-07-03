@@ -12,7 +12,7 @@ import (
 	"github.com/wrren/banter/config"
 	"github.com/wrren/banter/core"
 	"github.com/wrren/banter/llm"
-	"github.com/wrren/banter/llm/provider/openai"
+	"github.com/wrren/banter/llm/openai"
 )
 
 const (
@@ -29,6 +29,12 @@ var (
 type ModelStatus struct {
 	Value string   `json:"value"`
 	Args  []string `json:"args"`
+}
+
+func init() {
+	llm.Providers[ProviderType] = func(cfg *config.ProviderConfig) (llm.Provider, error) {
+		return NewProvider(cfg)
+	}
 }
 
 func (m ModelStatus) GetContextSize(defaultSize int) int {
@@ -64,7 +70,7 @@ type Provider struct {
 	baseURL string
 }
 
-func NewProvider(cfg config.ProviderConfig) (*Provider, error) {
+func NewProvider(cfg *config.ProviderConfig) (*Provider, error) {
 	baseURL, ok := cfg.Options[baseURLKey]
 	if !ok {
 		return nil, ErrNoBaseURL
