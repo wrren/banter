@@ -9,17 +9,18 @@ defmodule Banter.Tools do
       config :banter, :tools, [Banter.Tools.WebSearch, Banter.Tools.WebFetch]
   """
 
+  import Ecto.Query, warn: false
+
   alias Banter.Repo
   alias Banter.Tools.ToolState
 
   @pubsub Banter.PubSub
-  @topic "tools"
 
   @doc """
-  Subscribes to tool state changes.
+  Subscribes to the given user's tool state changes.
   """
-  def subscribe do
-    Phoenix.PubSub.subscribe(@pubsub, @topic)
+  def subscribe(user) do
+    Phoenix.PubSub.subscribe(@pubsub, topic(user))
   end
 
   @doc """
@@ -30,12 +31,12 @@ defmodule Banter.Tools do
   end
 
   @doc """
-  Lists installed tools together with their enabled state, as maps:
+  Lists installed tools together with the user's enabled state, as maps:
 
       %{module: module, name: binary, description: binary, enabled: boolean}
   """
-  def list do
-    states = Map.new(Repo.all(ToolState), &{&1.name, &1.enabled})
+  def list(user) do
+    states = Map.new(Repo.all(from ToolState, where: [user_id: ^user.id]), &{&1.name, &1.enabled})
 
     for module <- available() do
       name = module.name()
@@ -50,11 +51,11 @@ defmodule Banter.Tools do
   end
 
   @doc """
-  Returns true if the named tool is installed and enabled.
+  Returns true if the named tool is installed and enabled for the user.
   """
-  def enabled?(name) do
+  def enabled?(user, name) do
     with {:ok, _module} <- fetch_tool(name) do
-      case Repo.get_by(ToolState, name: name) do
+      case Repo.get_by(ToolState, user_id: user.id, name: name) do
         nil -> true
         %ToolState{enabled: enabled} -> enabled
       end
@@ -64,21 +65,22 @@ defmodule Banter.Tools do
   end
 
   @doc """
-  Enables or disables an installed tool, broadcasting the change.
+  Enables or disables an installed tool for the user, broadcasting the
+  change.
   """
-  def set_enabled(name, enabled) when is_boolean(enabled) do
+  def set_enabled(user, name, enabled) when is_boolean(enabled) do
     with {:ok, _module} <- fetch_tool(name) do
-      %ToolState{name: name}
+      %ToolState{user_id: user.id, name: name}
       |> ToolState.changeset(%{name: name, enabled: enabled})
       |> Repo.insert(
         on_conflict: [
           set: [enabled: enabled, updated_at: DateTime.truncate(DateTime.utc_now(), :second)]
         ],
-        conflict_target: :name
+        conflict_target: [:user_id, :name]
       )
       |> case do
         {:ok, state} ->
-          Phoenix.PubSub.broadcast(@pubsub, @topic, {:tool_toggled, state})
+          Phoenix.PubSub.broadcast(@pubsub, topic(user), {:tool_toggled, state})
           {:ok, state}
 
         {:error, changeset} ->
@@ -88,10 +90,10 @@ defmodule Banter.Tools do
   end
 
   @doc """
-  Returns the OpenAI-format tool specs for all enabled tools.
+  Returns the OpenAI-format tool specs for the user's enabled tools.
   """
-  def enabled_specs do
-    for %{enabled: true} = tool <- list() do
+  def enabled_specs(user) do
+    for %{enabled: true} = tool <- list(user) do
       %{
         "type" => "function",
         "function" => %{
@@ -104,14 +106,15 @@ defmodule Banter.Tools do
   end
 
   @doc """
-  Executes the named tool with the given (already JSON-decoded) arguments.
+  Executes the named tool with the given (already JSON-decoded) arguments
+  on behalf of the user.
 
   Returns `{:ok, result}` or `{:error, message}`; the message is suitable
   for sending back to the LLM as the tool result.
   """
-  def execute(name, args) when is_map(args) do
+  def execute(user, name, args) when is_map(args) do
     with {:ok, module} <- fetch_tool(name),
-         :ok <- ensure_enabled(name) do
+         :ok <- ensure_enabled(user, name) do
       try do
         module.execute(args)
       rescue
@@ -127,7 +130,9 @@ defmodule Banter.Tools do
     end
   end
 
-  defp ensure_enabled(name) do
-    if enabled?(name), do: :ok, else: {:error, "tool #{name} is disabled"}
+  defp ensure_enabled(user, name) do
+    if enabled?(user, name), do: :ok, else: {:error, "tool #{name} is disabled"}
   end
+
+  defp topic(user), do: "tools:#{user.id}"
 end

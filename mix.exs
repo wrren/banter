@@ -60,6 +60,7 @@ defmodule Banter.MixProject do
        depth: 1},
       {:floki, "~> 0.37"},
       {:mdex, "~> 0.13"},
+      {:bcrypt_elixir, "~> 3.0"},
       {:swoosh, "~> 1.16"},
       {:req, "~> 0.5"},
       {:telemetry_metrics, "~> 1.0"},

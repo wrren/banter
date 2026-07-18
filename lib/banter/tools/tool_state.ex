@@ -9,6 +9,8 @@ defmodule Banter.Tools.ToolState do
     field :name, :string
     field :enabled, :boolean, default: true
 
+    belongs_to :user, Banter.Accounts.User
+
     timestamps(type: :utc_datetime)
   end
 
@@ -17,6 +19,6 @@ defmodule Banter.Tools.ToolState do
     tool_state
     |> cast(attrs, [:name, :enabled])
     |> validate_required([:name, :enabled])
-    |> unique_constraint(:name)
+    |> unique_constraint([:user_id, :name])
   end
 end

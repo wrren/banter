@@ -90,16 +90,19 @@ defmodule BanterWeb.ChatComponents do
   @doc """
   Renders the in-progress assistant reply with a blinking block cursor.
 
-  Deliberately plain text: the reply is re-rendered as markdown (by
-  `chat_message/1`) once the run completes, which avoids re-rendering
-  markdown on every streamed token.
+  The stable portion of the reply — everything up to the last newline —
+  is rendered as markdown (re-rendered once per completed line, not per
+  token); the tail, the line still being written, stays plain text until
+  a newline completes it.
   """
-  attr :draft, :string, required: true
+  attr :html, :string, required: true
+  attr :tail, :string, required: true
 
   def assistant_draft(assigns) do
     ~H"""
     <div id="assistant-draft" class="px-4 py-2">
-      <span class="whitespace-pre-wrap break-words text-term-fg">{@draft}</span>
+      <div :if={@html != ""} class="markdown min-w-0">{raw(@html)}</div>
+      <span class="whitespace-pre-wrap break-words text-term-fg">{@tail}</span>
       <span class="banter-cursor text-term-green select-none">▊</span>
     </div>
     """

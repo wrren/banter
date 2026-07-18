@@ -6,6 +6,8 @@ defmodule Banter.Conversations.RunnerTest do
   alias Banter.LLM.Mock, as: MockLLM
   alias Banter.Tools.MockTool
 
+  import Banter.TestFixtures
+
   setup do
     original_tools = Application.get_env(:banter, :tools)
     Application.put_env(:banter, :tools, [Banter.Tools.MockTool])
@@ -14,15 +16,17 @@ defmodule Banter.Conversations.RunnerTest do
       Application.put_env(:banter, :tools, original_tools)
     end)
 
+    user = user_fixture()
+
     {:ok, conversation} =
-      Conversations.create_conversation(%{model: "mock-model", title: "test chat"})
+      Conversations.create_conversation(user, %{model: "mock-model", title: "test chat"})
 
     {:ok, _} =
       Conversations.create_message(conversation, %{role: "user", content: "hello there"})
 
     Runner.subscribe(conversation.id)
 
-    %{conversation: conversation}
+    %{conversation: conversation, user: user}
   end
 
   test "a simple text run streams and persists the reply", %{conversation: conversation} do
@@ -110,9 +114,12 @@ defmodule Banter.Conversations.RunnerTest do
              Conversations.list_messages(conversation)
   end
 
-  test "disabled tools produce an error result", %{conversation: conversation} do
+  test "disabled tools produce an error result", %{
+    conversation: conversation,
+    user: user
+  } do
     MockTool.set_result({:ok, "should not run"})
-    {:ok, _} = Banter.Tools.set_enabled("mock_tool", false)
+    {:ok, _} = Banter.Tools.set_enabled(user, "mock_tool", false)
 
     MockLLM.set_script([
       {:tool_call, "mock_tool", %{"input" => "x"}},

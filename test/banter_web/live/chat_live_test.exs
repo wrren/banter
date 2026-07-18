@@ -2,23 +2,49 @@ defmodule BanterWeb.ChatLiveTest do
   use BanterWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
+  import Banter.TestFixtures
 
   alias Banter.{Conversations, Repo, Tools}
   alias Banter.Conversations.Runner
   alias Banter.LLM.Mock, as: MockLLM
   alias Banter.Tools.MockTool
 
-  setup do
+  setup :register_and_log_in_user
+
+  setup %{user: user} do
     original_tools = Application.get_env(:banter, :tools)
 
     on_exit(fn ->
       Application.put_env(:banter, :tools, original_tools)
     end)
 
-    {:ok, conversation} =
-      Conversations.create_conversation(%{model: "mock-model", title: "test chat"})
+    conversation = conversation_fixture(user, %{title: "test chat"})
 
     %{conversation: conversation}
+  end
+
+  describe "authentication" do
+    test "redirects unauthenticated visitors to the login page" do
+      conn = Phoenix.ConnTest.build_conn()
+
+      assert {:error, {:redirect, %{to: "/users/log-in"}}} = live(conn, ~p"/")
+      assert {:error, {:redirect, %{to: "/users/log-in"}}} = live(conn, ~p"/users/settings")
+    end
+
+    test "users cannot open other users' conversations", %{
+      conn: conn,
+      conversation: conversation
+    } do
+      other_user = user_fixture()
+      other_conversation = conversation_fixture(other_user)
+
+      assert_raise Ecto.NoResultsError, fn ->
+        live(conn, ~p"/c/#{other_conversation.id}")
+      end
+
+      # but the owner can
+      {:ok, _view, _html} = live(conn, ~p"/c/#{conversation.id}")
+    end
   end
 
   describe "index" do
@@ -32,23 +58,35 @@ defmodule BanterWeb.ChatLiveTest do
       assert has_element?(view, "#model-select")
     end
 
-    test "lists existing conversations in the sidebar", %{
+    test "shows the signed-in user and account links", %{conn: conn, user: user} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert has_element?(view, "#settings-link")
+      assert has_element?(view, "#logout-link")
+      assert render(view) =~ user.username
+    end
+
+    test "lists only the user's own conversations in the sidebar", %{
       conn: conn,
       conversation: conversation
     } do
+      other_conversation = conversation_fixture(user_fixture())
+
       {:ok, view, _html} = live(conn, ~p"/")
 
       assert has_element?(view, "#conversations-#{conversation.id}", "test chat")
+      refute has_element?(view, "#conversations-#{other_conversation.id}")
     end
 
-    test "+ new creates a conversation and navigates to it", %{conn: conn} do
+    test "+ new creates a conversation and navigates to it", %{conn: conn, user: user} do
       {:ok, view, _html} = live(conn, ~p"/")
 
       view |> element("#new-chat") |> render_click()
 
-      [newest | _] = Conversations.list_conversations()
+      [newest | _] = Conversations.list_conversations(user)
 
       assert_patch(view, "/c/#{newest.id}")
+      assert newest.user_id == user.id
       assert has_element?(view, "#chat-form")
     end
   end
@@ -119,8 +157,8 @@ defmodule BanterWeb.ChatLiveTest do
                Conversations.list_messages(conversation)
     end
 
-    test "the first message retitles a default-titled conversation", %{conn: conn} do
-      {:ok, conversation} = Conversations.create_conversation(%{model: "mock-model"})
+    test "the first message retitles a default-titled conversation", %{conn: conn, user: user} do
+      conversation = conversation_fixture(user)
       Runner.subscribe(conversation.id)
       MockLLM.set_script([{:text, "ok"}])
 
@@ -146,6 +184,29 @@ defmodule BanterWeb.ChatLiveTest do
       send(view.pid, {:llm_delta, "partial reply…"})
 
       assert has_element?(view, "#assistant-draft", "partial reply…")
+    end
+
+    test "renders completed draft lines as markdown, tail stays plain", %{
+      conn: conn,
+      conversation: conversation
+    } do
+      {:ok, view, _html} = live(conn, ~p"/c/#{conversation.id}")
+
+      send(view.pid, {:run_started, conversation.id})
+
+      # incomplete line: plain text, no markdown
+      send(view.pid, {:llm_delta, "# Title"})
+      refute has_element?(view, "#assistant-draft .markdown h1")
+
+      # once the line completes, the stable portion renders as markdown
+      send(view.pid, {:llm_delta, "\n\nfirst paragraph with **bold**\n"})
+      assert has_element?(view, "#assistant-draft .markdown h1", "Title")
+      assert has_element?(view, "#assistant-draft .markdown strong", "bold")
+
+      # the new incomplete tail is plain text again
+      send(view.pid, {:llm_delta, "tail with **unclosed"})
+      refute has_element?(view, "#assistant-draft strong", "unclosed")
+      assert render(view) =~ "tail with **unclosed"
     end
 
     test "renders tool calls and their results", %{conn: conn, conversation: conversation} do
@@ -206,23 +267,25 @@ defmodule BanterWeb.ChatLiveTest do
       assert render(view) =~ "run failed: provider exploded"
     end
 
-    test "toggling a tool persists the change", %{conn: conn} do
+    test "toggling a tool persists the change for this user", %{conn: conn, user: user} do
+      other_user = user_fixture()
       {:ok, view, _html} = live(conn, ~p"/")
 
-      assert Tools.enabled?("web_search")
+      assert Tools.enabled?(user, "web_search")
 
       view
       |> element("#tool-toggle-web_search")
       |> render_click()
 
-      refute Tools.enabled?("web_search")
+      refute Tools.enabled?(user, "web_search")
+      assert Tools.enabled?(other_user, "web_search")
       assert has_element?(view, ~s(#tool-toggle-web_search[aria-checked="false"]))
 
       view
       |> element("#tool-toggle-web_search")
       |> render_click()
 
-      assert Tools.enabled?("web_search")
+      assert Tools.enabled?(user, "web_search")
       assert has_element?(view, ~s(#tool-toggle-web_search[aria-checked="true"]))
     end
 

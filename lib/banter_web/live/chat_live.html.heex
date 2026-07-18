@@ -1,4 +1,4 @@
-<Layouts.app flash={@flash}>
+<Layouts.app flash={@flash} current_scope={@current_scope}>
   <div class="flex h-full">
     <%!-- Sidebar --%>
     <aside class="flex w-64 shrink-0 flex-col border-r border-term-border bg-term-panel">
@@ -92,6 +92,34 @@
           </select>
         </form>
       </div>
+
+      <div class="flex items-center justify-between border-t border-term-border px-3 py-2">
+        <span
+          class="truncate text-sm text-term-dim"
+          title={"signed in as #{@current_scope.user.username}"}
+        >
+          <span class="text-term-faint">@</span>{@current_scope.user.username}
+        </span>
+        <div class="flex items-center gap-2">
+          <.link
+            id="settings-link"
+            navigate={~p"/users/settings"}
+            title="Account settings"
+            class="text-term-faint transition-colors hover:text-term-cyan"
+          >
+            <.icon name="hero-cog-6-tooth" class="size-4" />
+          </.link>
+          <.link
+            id="logout-link"
+            href={~p"/users/log-out"}
+            method="delete"
+            title="Log out"
+            class="text-term-faint transition-colors hover:text-term-red"
+          >
+            <.icon name="hero-arrow-right-on-rectangle" class="size-4" />
+          </.link>
+        </div>
+      </div>
     </aside>
 
     <%!-- Main panel --%>
@@ -115,7 +143,11 @@
               message={message}
             />
           </div>
-          <.assistant_draft :if={@running && @draft not in [nil, ""]} draft={@draft} />
+          <.assistant_draft
+            :if={@running && @draft not in [nil, ""]}
+            html={@draft_html}
+            tail={@draft_tail}
+          />
           <.run_status :if={@running && @status} status={@status} />
         </div>
 

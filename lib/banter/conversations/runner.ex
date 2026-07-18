@@ -19,7 +19,7 @@ defmodule Banter.Conversations.Runner do
     * `{:run_failed, conversation_id, reason}`
   """
 
-  alias Banter.{Conversations, LLM, Tools}
+  alias Banter.{Accounts, Conversations, LLM, Tools}
   alias Banter.Conversations.Conversation
 
   @pubsub Banter.PubSub
@@ -79,11 +79,12 @@ defmodule Banter.Conversations.Runner do
 
   defp do_run(conversation_id, opts) do
     conversation = Conversations.get_conversation!(conversation_id)
+    user = Accounts.get_user!(conversation.user_id)
     max_iterations = Keyword.get(opts, :max_tool_iterations, @max_tool_iterations)
 
     broadcast(conversation.id, {:run_started, conversation.id})
 
-    case loop(conversation, max_iterations) do
+    case loop(conversation, user, max_iterations) do
       :ok ->
         broadcast(conversation.id, {:run_finished, conversation.id})
         :ok
@@ -94,9 +95,9 @@ defmodule Banter.Conversations.Runner do
     end
   end
 
-  defp loop(_conversation, 0), do: {:error, "too many tool calls"}
+  defp loop(_conversation, _user, 0), do: {:error, "too many tool calls"}
 
-  defp loop(%Conversation{} = conversation, iterations_left) do
+  defp loop(%Conversation{} = conversation, user, iterations_left) do
     messages =
       conversation
       |> Conversations.list_messages()
@@ -105,7 +106,7 @@ defmodule Banter.Conversations.Runner do
     with_forwarder(conversation.id, fn stream_to ->
       LLM.chat(messages,
         model: conversation.model,
-        tools: Tools.enabled_specs(),
+        tools: Tools.enabled_specs(user),
         stream_to: stream_to
       )
     end)
@@ -119,8 +120,8 @@ defmodule Banter.Conversations.Runner do
             :ok
 
           calls ->
-            execute_tool_calls(conversation, calls)
-            loop(conversation, iterations_left - 1)
+            execute_tool_calls(conversation, user, calls)
+            loop(conversation, user, iterations_left - 1)
         end
 
       {:error, reason} ->
@@ -136,13 +137,13 @@ defmodule Banter.Conversations.Runner do
     })
   end
 
-  defp execute_tool_calls(conversation, tool_calls) do
+  defp execute_tool_calls(conversation, user, tool_calls) do
     Enum.each(tool_calls, fn tool_call ->
       %{"id" => id, "function" => %{"name" => name}} = tool_call
 
       broadcast(conversation.id, {:tool_call_started, tool_call})
 
-      {status, content} = execute_tool_call(tool_call)
+      {status, content} = execute_tool_call(user, tool_call)
 
       broadcast(conversation.id, {:tool_call_finished, id, name, status})
 
@@ -157,10 +158,10 @@ defmodule Banter.Conversations.Runner do
     end)
   end
 
-  defp execute_tool_call(%{"function" => %{"name" => name, "arguments" => arguments}}) do
+  defp execute_tool_call(user, %{"function" => %{"name" => name, "arguments" => arguments}}) do
     case Jason.decode(arguments || "{}") do
       {:ok, args} when is_map(args) ->
-        case Tools.execute(name, args) do
+        case Tools.execute(user, name, args) do
           {:ok, result} -> {:ok, result}
           {:error, reason} -> {:error, "Error: #{reason}"}
         end

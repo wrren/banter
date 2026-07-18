@@ -11,22 +11,37 @@ defmodule Banter.Conversations do
   ## Conversations
 
   @doc """
-  Lists all conversations, most recently active first.
+  Lists a user's conversations, most recently active first.
   """
-  def list_conversations do
-    Repo.all(from c in Conversation, order_by: [desc: c.updated_at, desc: c.id])
+  def list_conversations(%Banter.Accounts.User{} = user) do
+    Repo.all(
+      from c in Conversation,
+        where: c.user_id == ^user.id,
+        order_by: [desc: c.updated_at, desc: c.id]
+    )
   end
 
   @doc """
-  Gets a single conversation, raising if it does not exist.
+  Gets a single conversation by id, raising if it does not exist.
+
+  This does not check ownership; use `get_user_conversation!/2` from
+  user-facing code paths.
   """
   def get_conversation!(id), do: Repo.get!(Conversation, id)
 
   @doc """
-  Creates a conversation. `model` is required in `attrs`.
+  Gets a single conversation owned by the given user, raising if it does
+  not exist or belongs to someone else.
   """
-  def create_conversation(attrs \\ %{}) do
-    %Conversation{}
+  def get_user_conversation!(%Banter.Accounts.User{} = user, id) do
+    Repo.get_by!(Conversation, id: id, user_id: user.id)
+  end
+
+  @doc """
+  Creates a conversation for a user. `model` is required in `attrs`.
+  """
+  def create_conversation(%Banter.Accounts.User{} = user, attrs \\ %{}) do
+    %Conversation{user_id: user.id}
     |> Conversation.changeset(attrs)
     |> Repo.insert()
   end

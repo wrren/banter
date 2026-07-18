@@ -11,6 +11,7 @@ defmodule Banter.Conversations.Conversation do
     field :title, :string, default: @default_title
     field :model, :string
 
+    belongs_to :user, Banter.Accounts.User
     has_many :messages, Banter.Conversations.Message
 
     timestamps(type: :utc_datetime_usec)

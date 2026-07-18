@@ -4,11 +4,12 @@ This is a web application written using the Phoenix web framework.
 
 Banter is a small harness for conversing with LLMs. Key architecture:
 
-- `Banter.Conversations` — Postgres-backed conversations and messages. Messages are stored in the OpenAI chat-completions shape (`role`, `content`, `tool_calls`, `tool_call_id`) so they can be sent straight to a provider.
+- `Banter.Accounts` — username/password auth (no email flows). Session tokens are persisted SHA256-hashed in `user_tokens`; `BanterWeb.UserAuth` provides the `fetch_current_scope` plug and `live_session` on_mount hooks (`:ensure_authenticated`, `:redirect_if_authenticated`). `RegistrationLive`/`LoginLive` validate inline but POST to `BanterWeb.UserSessionController` (sessions can only be written from a real conn). `SettingsLive` handles password changes; changing a password invalidates all sessions.
+- `Banter.Conversations` — Postgres-backed conversations and messages, scoped per user (`user_id` FK). Messages are stored in the OpenAI chat-completions shape (`role`, `content`, `tool_calls`, `tool_call_id`) so they can be sent straight to a provider. `get_conversation!/1` is unscoped (internal); web-facing code must use `get_user_conversation!/2`.
 - `Banter.Conversations.Runner` — the agent loop. Runs as a supervised, unlinked task under `Banter.TaskSupervisor`, tracks in-flight runs in `Banter.RunnerRegistry`, and broadcasts progress (`:run_started`, `:llm_delta`, `:message_appended`, `:tool_call_started/finished`, `:run_finished/failed`) via PubSub on `"conversation:<id>"`.
 - `Banter.LLM` — provider facade. `Banter.LLM.OpenAI` streams from any OpenAI-compatible endpoint (OpenRouter by default; set `LLM_BASE_URL` for llama.cpp). SSE chunks are parsed by the pure `Banter.LLM.SSE` module. The provider is selected with `config :banter, :llm_provider`.
-- `Banter.Tools` — tool registry. Tools implement the `Banter.Tools.Tool` behaviour and are *installed* via `config :banter, :tools` and *enabled/disabled* at runtime (persisted in `tool_states`). Ships with `web_search` (Brave Search API) and `web_fetch` (boilerplate-stripping, token-frugal fetch, uses Floki).
-- `BanterWeb.ChatLive` — the single chat LiveView (`/` and `/c/:id`), styled like a terminal (dark `term-*` palette defined in `assets/css/app.css`, monospace, colocated JS hooks for Enter-to-send and auto-scroll).
+- `Banter.Tools` — tool registry. Tools implement the `Banter.Tools.Tool` behaviour and are *installed* via `config :banter, :tools` and *enabled/disabled* per user (persisted in `tool_states`, keyed `(user_id, name)`; PubSub topic `"tools:<user_id>"`). Ships with `web_search` (Brave Search API) and `web_fetch` (boilerplate-stripping, token-frugal fetch, uses Floki). HTTP tools pass `compressed: true` — never set `accept-encoding` manually (it bypasses Req's decompression).
+- `BanterWeb.ChatLive` — the single chat LiveView (`/` and `/c/:id`), styled like a terminal (dark `term-*` palette defined in `assets/css/app.css`, monospace, colocated JS hooks for Enter-to-send and auto-scroll). Assistant messages render markdown via `BanterWeb.Markdown` (MDEx; raw HTML escaped, styled with `.markdown` rules in app.css); while streaming, the draft renders markdown per completed line (stable portion before the last newline) and keeps the in-progress line as plain text with a cursor.
 
 Environment variables: `LLM_BASE_URL`, `LLM_API_KEY` (or `OPENROUTER_API_KEY`), `LLM_MODEL`, `LLM_MODELS`, `BRAVE_SEARCH_API_KEY`.
 
@@ -16,6 +17,7 @@ Testing conventions:
 
 - HTTP is stubbed with `Req.Test` plugs injected via config (`plug: {Req.Test, ...}`), never real network calls.
 - `Banter.LLM.Mock` and `Banter.Tools.MockTool` (in `test/support`) are scripted, globally-named fakes — tests using them must be `async: false`.
+- `Banter.TestFixtures` (in `test/support`) provides `user_fixture/1` and `conversation_fixture/2`; `ConnCase.register_and_log_in_user/1` logs a user in for LiveView tests (`setup :register_and_log_in_user`).
 - daisyUI was removed from the project; hand-roll Tailwind components with the `term-*` palette instead.
 
 ## Project guidelines

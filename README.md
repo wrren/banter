@@ -3,9 +3,11 @@
 A small harness for conversing with LLMs, with a terminal-styled web UI
 and pluggable tools the model can call mid-conversation.
 
-Built with Phoenix LiveView. Conversations are persisted in Postgres.
-Assistant responses stream token-by-token from any OpenAI-compatible
-endpoint (OpenRouter by default, llama.cpp and friends work too).
+Built with Phoenix LiveView. Conversations are persisted in Postgres and
+scoped per user account (username + password auth; register at
+`/users/register`). Assistant responses stream token-by-token from any
+OpenAI-compatible endpoint (OpenRouter by default, llama.cpp and friends
+work too).
 
 ## Setup
 
@@ -45,13 +47,21 @@ the app:
   usage low
 
 Tools can be enabled/disabled at runtime from the sidebar; the state is
-persisted in the database. To install a new tool, implement the
+persisted per user in the database. To install a new tool, implement the
 `Banter.Tools.Tool` behaviour and add the module to the `:tools` list in
 `config/config.exs`:
 
 ```elixir
 config :banter, :tools, [Banter.Tools.WebSearch, Banter.Tools.WebFetch, MyApp.Tools.MyTool]
 ```
+
+## Accounts
+
+Banter uses username + password auth (no email required). Register at
+`/users/register`; sign in at `/users/log-in`. Conversations and tool
+preferences are scoped per user. Passwords can be changed from the
+settings page (gear icon in the sidebar); changing your password signs
+out all sessions.
 
 ## Development
 

@@ -4,38 +4,55 @@ defmodule Banter.ConversationsTest do
   alias Banter.Conversations
   alias Banter.Conversations.{Conversation, Message}
 
-  defp conversation_fixture(attrs \\ %{}) do
-    attrs = Map.put_new(attrs, :model, "test-model")
+  import Banter.TestFixtures
 
-    {:ok, conversation} = Conversations.create_conversation(attrs)
-    conversation
+  setup do
+    %{user: user_fixture()}
   end
 
   describe "conversations" do
-    test "create_conversation/1 requires a model" do
-      assert {:error, changeset} = Conversations.create_conversation(%{})
+    test "create_conversation/2 requires a model", %{user: user} do
+      assert {:error, changeset} = Conversations.create_conversation(user, %{})
       assert %{model: ["can't be blank"]} = errors_on(changeset)
     end
 
-    test "create_conversation/1 defaults the title" do
-      conversation = conversation_fixture()
+    test "create_conversation/2 defaults the title and sets the owner", %{user: user} do
+      conversation = conversation_fixture(user)
       assert conversation.title == Conversation.default_title()
+      assert conversation.user_id == user.id
     end
 
-    test "list_conversations/0 returns most recently active first" do
-      older = conversation_fixture(%{title: "older"})
-      newer = conversation_fixture(%{title: "newer"})
+    test "list_conversations/1 returns the user's conversations, most recently active first", %{
+      user: user
+    } do
+      older = conversation_fixture(user, %{title: "older"})
+      newer = conversation_fixture(user, %{title: "newer"})
 
       # bump the older conversation so it sorts first
       {:ok, _} = Conversations.create_message(older, %{role: "user", content: "ping"})
 
-      assert [%Conversation{id: id} | _] = Conversations.list_conversations()
+      assert [%Conversation{id: id} | _] = Conversations.list_conversations(user)
       assert id == older.id
-      assert Enum.any?(Conversations.list_conversations(), &(&1.id == newer.id))
+      assert Enum.any?(Conversations.list_conversations(user), &(&1.id == newer.id))
     end
 
-    test "update_conversation/2 changes title and model" do
-      conversation = conversation_fixture()
+    test "list_conversations/1 does not include other users' conversations", %{user: user} do
+      _own = conversation_fixture(user, %{title: "mine"})
+      _other = conversation_fixture(user_fixture(), %{title: "theirs"})
+
+      assert [%Conversation{title: "mine"}] = Conversations.list_conversations(user)
+    end
+
+    test "get_user_conversation!/2 raises for another user's conversation", %{user: user} do
+      other = conversation_fixture(user_fixture())
+
+      assert_raise Ecto.NoResultsError, fn ->
+        Conversations.get_user_conversation!(user, other.id)
+      end
+    end
+
+    test "update_conversation/2 changes title and model", %{user: user} do
+      conversation = conversation_fixture(user)
 
       assert {:ok, updated} =
                Conversations.update_conversation(conversation, %{
@@ -47,8 +64,8 @@ defmodule Banter.ConversationsTest do
       assert updated.model == "other-model"
     end
 
-    test "delete_conversation/1 removes the conversation and its messages" do
-      conversation = conversation_fixture()
+    test "delete_conversation/1 removes the conversation and its messages", %{user: user} do
+      conversation = conversation_fixture(user)
       {:ok, _} = Conversations.create_message(conversation, %{role: "user", content: "hi"})
 
       assert {:ok, _} = Conversations.delete_conversation(conversation)
@@ -56,8 +73,15 @@ defmodule Banter.ConversationsTest do
       assert Repo.aggregate(Message, :count) == 0
     end
 
-    test "maybe_retitle/2 renames a default-titled conversation" do
-      conversation = conversation_fixture()
+    test "deleting a user deletes their conversations", %{user: user} do
+      conversation = conversation_fixture(user)
+      Repo.delete!(user)
+
+      assert_raise Ecto.NoResultsError, fn -> Conversations.get_conversation!(conversation.id) end
+    end
+
+    test "maybe_retitle/2 renames a default-titled conversation", %{user: user} do
+      conversation = conversation_fixture(user)
 
       assert {:ok, updated} =
                Conversations.maybe_retitle(conversation, "  what is\n the capital of France? ")
@@ -65,14 +89,14 @@ defmodule Banter.ConversationsTest do
       assert updated.title == "what is the capital of France?"
     end
 
-    test "maybe_retitle/2 truncates long titles" do
-      conversation = conversation_fixture()
+    test "maybe_retitle/2 truncates long titles", %{user: user} do
+      conversation = conversation_fixture(user)
       {:ok, updated} = Conversations.maybe_retitle(conversation, String.duplicate("a", 100))
       assert String.length(updated.title) == 60
     end
 
-    test "maybe_retitle/2 leaves custom titles alone" do
-      conversation = conversation_fixture(%{title: "custom"})
+    test "maybe_retitle/2 leaves custom titles alone", %{user: user} do
+      conversation = conversation_fixture(user, %{title: "custom"})
 
       assert {:ok, updated} = Conversations.maybe_retitle(conversation, "something else")
       assert updated.title == "custom"
@@ -80,8 +104,8 @@ defmodule Banter.ConversationsTest do
   end
 
   describe "messages" do
-    test "create_message/2 persists a message" do
-      conversation = conversation_fixture()
+    test "create_message/2 persists a message", %{user: user} do
+      conversation = conversation_fixture(user)
 
       assert {:ok, %Message{} = message} =
                Conversations.create_message(conversation, %{role: "user", content: "hello"})
@@ -91,15 +115,15 @@ defmodule Banter.ConversationsTest do
       assert message.conversation_id == conversation.id
     end
 
-    test "create_message/2 requires content or tool calls" do
-      conversation = conversation_fixture()
+    test "create_message/2 requires content or tool calls", %{user: user} do
+      conversation = conversation_fixture(user)
 
       assert {:error, changeset} = Conversations.create_message(conversation, %{role: "user"})
       assert %{content: [_]} = errors_on(changeset)
     end
 
-    test "create_message/2 allows empty content for assistant tool calls" do
-      conversation = conversation_fixture()
+    test "create_message/2 allows empty content for assistant tool calls", %{user: user} do
+      conversation = conversation_fixture(user)
 
       tool_calls = [
         %{
@@ -118,8 +142,8 @@ defmodule Banter.ConversationsTest do
       assert message.tool_calls == tool_calls
     end
 
-    test "create_message/2 requires tool_call_id for tool messages" do
-      conversation = conversation_fixture()
+    test "create_message/2 requires tool_call_id for tool messages", %{user: user} do
+      conversation = conversation_fixture(user)
 
       assert {:error, changeset} =
                Conversations.create_message(conversation, %{role: "tool", content: "result"})
@@ -127,8 +151,8 @@ defmodule Banter.ConversationsTest do
       assert %{tool_call_id: ["can't be blank"]} = errors_on(changeset)
     end
 
-    test "list_messages/1 returns messages in chronological order" do
-      conversation = conversation_fixture()
+    test "list_messages/1 returns messages in chronological order", %{user: user} do
+      conversation = conversation_fixture(user)
       {:ok, first} = Conversations.create_message(conversation, %{role: "user", content: "one"})
 
       {:ok, second} =
@@ -139,8 +163,8 @@ defmodule Banter.ConversationsTest do
       assert m2.id == second.id
     end
 
-    test "messages_for_api/1 converts to the OpenAI request shape" do
-      conversation = conversation_fixture()
+    test "messages_for_api/1 converts to the OpenAI request shape", %{user: user} do
+      conversation = conversation_fixture(user)
 
       {:ok, _} = Conversations.create_message(conversation, %{role: "user", content: "hi"})
 

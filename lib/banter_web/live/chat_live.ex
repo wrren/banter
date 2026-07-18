@@ -12,22 +12,27 @@ defmodule BanterWeb.ChatLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    user = socket.assigns.current_scope.user
+
     socket =
       socket
       |> assign(
         conversation: nil,
         draft: nil,
+        draft_stable: "",
+        draft_html: "",
+        draft_tail: "",
         running: false,
         status: nil,
-        tools: Tools.list(),
+        tools: Tools.list(user),
         models: LLM.available_models(),
         form: to_form(%{"content" => ""}),
         page_title: "banter"
       )
-      |> stream(:conversations, Conversations.list_conversations())
+      |> stream(:conversations, Conversations.list_conversations(user))
       |> stream(:messages, [])
 
-    if connected?(socket), do: Tools.subscribe()
+    if connected?(socket), do: Tools.subscribe(user)
 
     {:ok, socket}
   end
@@ -39,7 +44,7 @@ defmodule BanterWeb.ChatLive do
         {:noreply, assign_conversation(socket, nil)}
 
       {:show, %{"id" => id}} ->
-        conversation = Conversations.get_conversation!(id)
+        conversation = Conversations.get_user_conversation!(socket.assigns.current_scope.user, id)
         {:noreply, assign_conversation(socket, conversation)}
     end
   end
@@ -87,7 +92,10 @@ defmodule BanterWeb.ChatLive do
   end
 
   def handle_event("new", _params, socket) do
-    {:ok, conversation} = Conversations.create_conversation(%{model: LLM.default_model()})
+    {:ok, conversation} =
+      Conversations.create_conversation(socket.assigns.current_scope.user, %{
+        model: LLM.default_model()
+      })
 
     {:noreply,
      socket
@@ -96,7 +104,7 @@ defmodule BanterWeb.ChatLive do
   end
 
   def handle_event("delete", %{"id" => id}, socket) do
-    conversation = Conversations.get_conversation!(id)
+    conversation = Conversations.get_user_conversation!(socket.assigns.current_scope.user, id)
     {:ok, _} = Conversations.delete_conversation(conversation)
 
     socket = refresh_conversations(socket)
@@ -109,13 +117,14 @@ defmodule BanterWeb.ChatLive do
   end
 
   def handle_event("toggle_tool", %{"name" => name}, socket) do
+    user = socket.assigns.current_scope.user
     tool = Enum.find(socket.assigns.tools, &(&1.name == name))
 
     if tool do
-      {:ok, _state} = Tools.set_enabled(name, not tool.enabled)
+      {:ok, _state} = Tools.set_enabled(user, name, not tool.enabled)
     end
 
-    {:noreply, assign(socket, :tools, Tools.list())}
+    {:noreply, assign(socket, :tools, Tools.list(user))}
   end
 
   def handle_event("select_model", %{"model" => model}, socket) do
@@ -132,15 +141,26 @@ defmodule BanterWeb.ChatLive do
 
   @impl true
   def handle_info({:run_started, _id}, socket) do
-    {:noreply, assign(socket, running: true, status: "thinking…", draft: nil)}
+    {:noreply, socket |> clear_draft() |> assign(running: true, status: "thinking…")}
   end
 
   def handle_info({:llm_delta, chunk}, socket) do
-    {:noreply,
-     assign(socket,
-       draft: (socket.assigns.draft || "") <> chunk,
-       status: nil
-     )}
+    draft = (socket.assigns.draft || "") <> chunk
+    {stable, tail} = split_draft(draft)
+
+    socket = assign(socket, draft: draft, draft_tail: tail, status: nil)
+
+    socket =
+      if stable != socket.assigns.draft_stable do
+        assign(socket,
+          draft_stable: stable,
+          draft_html: BanterWeb.Markdown.to_html(stable)
+        )
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   def handle_info({:message_appended, message}, socket) do
@@ -151,7 +171,7 @@ defmodule BanterWeb.ChatLive do
 
     socket =
       if message.role == "assistant" do
-        assign(socket, draft: nil)
+        clear_draft(socket)
       else
         socket
       end
@@ -169,18 +189,19 @@ defmodule BanterWeb.ChatLive do
   end
 
   def handle_info({:run_finished, _id}, socket) do
-    {:noreply, assign(socket, running: false, status: nil, draft: nil)}
+    {:noreply, socket |> clear_draft() |> assign(running: false, status: nil)}
   end
 
   def handle_info({:run_failed, _id, reason}, socket) do
     {:noreply,
      socket
-     |> assign(running: false, status: nil, draft: nil)
+     |> clear_draft()
+     |> assign(running: false, status: nil)
      |> put_flash(:error, "run failed: #{reason}")}
   end
 
   def handle_info({:tool_toggled, _state}, socket) do
-    {:noreply, assign(socket, :tools, Tools.list())}
+    {:noreply, assign(socket, :tools, Tools.list(socket.assigns.current_scope.user))}
   end
 
   ## Helpers
@@ -189,9 +210,9 @@ defmodule BanterWeb.ChatLive do
     maybe_unsubscribe(socket, socket.assigns.conversation)
 
     socket
+    |> clear_draft()
     |> assign(
       conversation: nil,
-      draft: nil,
       running: false,
       status: nil,
       page_title: "banter"
@@ -204,14 +225,33 @@ defmodule BanterWeb.ChatLive do
     if connected?(socket), do: Runner.subscribe(conversation.id)
 
     socket
+    |> clear_draft()
     |> assign(
       conversation: conversation,
-      draft: nil,
       status: nil,
       running: Runner.running?(conversation.id),
       page_title: conversation.title
     )
     |> stream(:messages, Conversations.list_messages(conversation), reset: true)
+  end
+
+  # Splits a draft reply into the stable portion (everything up to and
+  # including the last newline) and the tail (the incomplete line still
+  # being written). Only the stable portion is rendered as markdown, and
+  # only when it changes — i.e. once per completed line.
+  defp split_draft(draft) do
+    case :binary.matches(draft, "\n") do
+      [] ->
+        {"", draft}
+
+      matches ->
+        {pos, 1} = List.last(matches)
+        {binary_part(draft, 0, pos + 1), binary_part(draft, pos + 1, byte_size(draft) - pos - 1)}
+    end
+  end
+
+  defp clear_draft(socket) do
+    assign(socket, draft: nil, draft_stable: "", draft_html: "", draft_tail: "")
   end
 
   defp maybe_unsubscribe(socket, %Conversation{} = conversation) do
@@ -225,6 +265,11 @@ defmodule BanterWeb.ChatLive do
   end
 
   defp refresh_conversations(socket) do
-    stream(socket, :conversations, Conversations.list_conversations(), reset: true)
+    stream(
+      socket,
+      :conversations,
+      Conversations.list_conversations(socket.assigns.current_scope.user),
+      reset: true
+    )
   end
 end
