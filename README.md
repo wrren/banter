@@ -103,3 +103,23 @@ Required runtime environment variables:
 | `BRAVE_SEARCH_API_KEY` | required only if the `web_search` tool is enabled |
 
 The image exposes port 4000 and runs as the unprivileged `nobody` user.
+
+### Compose
+
+A `compose.yaml` is included for local development. It runs Postgres,
+applies migrations via `bin/banter eval Banter.Release.migrate()`, and
+exposes the app on **port 4009**:
+
+```sh
+cp .env.example .env
+# edit .env to set SECRET_KEY_BASE and an LLM_API_KEY
+docker compose up --build
+# or, with apple/container:
+#   container compose up --build   # requires the container-compose plugin
+```
+
+Then visit [`localhost:4009`](http://localhost:4009). Data persists in
+the `banter_db` named volume; `docker compose down -v` will wipe it.
+
+The migration step uses a `Banter.Release` module invoked through the
+release's `eval` command — there's no `mix` in the runtime image.

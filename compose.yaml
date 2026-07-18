@@ -1,0 +1,59 @@
+name: banter
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: banter
+      POSTGRES_PASSWORD: banter
+      POSTGRES_DB: banter
+    volumes:
+      - banter_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banter -d banter"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    # Build and tag the same image the web service runs, so we can run
+    # release eval commands against it without shipping mix.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: banter:test
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ecto://banter:banter@db:5432/banter
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE is required (run `mix phx.gen.secret` to generate one)}
+    command: ["bin/banter", "eval", "Banter.Release.migrate()"]
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: banter:test
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "4009:4000"
+    environment:
+      DATABASE_URL: ecto://banter:banter@db:5432/banter
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE is required (run `mix phx.gen.secret` to generate one)}
+      PHX_HOST: ${PHX_HOST:-localhost}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      LLM_MODEL: ${LLM_MODEL:-openai/gpt-4o-mini}
+      LLM_MODELS: ${LLM_MODELS:-}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+
+volumes:
+  banter_db:
