@@ -1,0 +1,206 @@
+<Layouts.app flash={@flash}>
+  <div class="flex h-full">
+    <%!-- Sidebar --%>
+    <aside class="flex w-64 shrink-0 flex-col border-r border-term-border bg-term-panel">
+      <div class="flex items-center justify-between border-b border-term-border px-3 py-3">
+        <.link patch={~p"/"} class="text-term-green font-bold tracking-tight">
+          banter<span class="banter-cursor">▊</span>
+        </.link>
+        <button
+          id="new-chat"
+          phx-click="new"
+          class="rounded border border-term-border px-2 py-0.5 text-xs text-term-dim transition-colors hover:border-term-green/50 hover:text-term-green cursor-pointer"
+        >
+          + new
+        </button>
+      </div>
+
+      <nav id="conversations" phx-update="stream" class="flex-1 overflow-y-auto py-1">
+        <div id="conversations-empty" class="hidden only:block px-3 py-2 text-sm text-term-faint">
+          no conversations yet
+        </div>
+        <div :for={{id, conversation} <- @streams.conversations} id={id} class="group relative">
+          <.link
+            patch={~p"/c/#{conversation.id}"}
+            class={[
+              "block truncate px-3 py-1.5 pr-8 text-sm transition-colors",
+              if(@conversation && @conversation.id == conversation.id,
+                do: "bg-term-border/40 text-term-fg",
+                else: "text-term-dim hover:text-term-fg"
+              )
+            ]}
+          >
+            {conversation.title}
+          </.link>
+          <button
+            id={"delete-#{id}"}
+            phx-click="delete"
+            phx-value-id={conversation.id}
+            data-confirm="Delete this conversation?"
+            title="Delete conversation"
+            class="absolute right-1.5 top-1/2 -translate-y-1/2 text-term-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-term-red cursor-pointer"
+          >
+            <.icon name="hero-x-mark" class="size-3.5" />
+          </button>
+        </div>
+      </nav>
+
+      <div class="space-y-3 border-t border-term-border px-3 py-3">
+        <div>
+          <h3 class="mb-1 text-xs uppercase tracking-wider text-term-faint">tools</h3>
+          <div :for={tool <- @tools} class="flex items-center justify-between py-0.5">
+            <span class="text-sm text-term-dim" title={tool.description}>{tool.name}</span>
+            <button
+              id={"tool-toggle-#{tool.name}"}
+              phx-click="toggle_tool"
+              phx-value-name={tool.name}
+              role="switch"
+              aria-checked={to_string(tool.enabled)}
+              title={if(tool.enabled, do: "Disable #{tool.name}", else: "Enable #{tool.name}")}
+              class={[
+                "relative h-4 w-8 shrink-0 rounded-full transition-colors cursor-pointer",
+                if(tool.enabled, do: "bg-term-green/40", else: "bg-term-border")
+              ]}
+            >
+              <span class={[
+                "absolute top-0.5 size-3 rounded-full bg-term-fg transition-all",
+                if(tool.enabled, do: "left-[18px]", else: "left-0.5")
+              ]} />
+            </button>
+          </div>
+        </div>
+
+        <form id="model-form" phx-change="select_model">
+          <label
+            for="model-select"
+            class="mb-1 block text-xs uppercase tracking-wider text-term-faint"
+          >
+            model
+          </label>
+          <select
+            id="model-select"
+            name="model"
+            class="w-full cursor-pointer rounded border border-term-border bg-term-bg px-1.5 py-1 text-sm text-term-fg focus:border-term-dim focus:outline-none"
+          >
+            <option
+              :for={model <- @models}
+              value={model}
+              selected={@conversation && @conversation.model == model}
+            >
+              {model}
+            </option>
+          </select>
+        </form>
+      </div>
+    </aside>
+
+    <%!-- Main panel --%>
+    <div class="flex min-w-0 flex-1 flex-col">
+      <%= if @conversation do %>
+        <header class="flex items-center gap-3 border-b border-term-border px-4 py-2">
+          <h1 class="min-w-0 flex-1 truncate text-sm text-term-fg">{@conversation.title}</h1>
+          <span id="current-model" class="shrink-0 text-xs text-term-faint">
+            {@conversation.model}
+          </span>
+        </header>
+
+        <div id="chat-scroll" phx-hook=".AutoScroll" class="flex-1 overflow-y-auto py-2">
+          <div id="messages" phx-update="stream">
+            <div id="messages-empty" class="hidden only:block px-4 py-2 text-sm text-term-faint">
+              no messages yet — say hi
+            </div>
+            <.chat_message
+              :for={{id, message} <- @streams.messages}
+              id={id}
+              message={message}
+            />
+          </div>
+          <.assistant_draft :if={@running && @draft not in [nil, ""]} draft={@draft} />
+          <.run_status :if={@running && @status} status={@status} />
+        </div>
+
+        <div class="border-t border-term-border px-4 py-3">
+          <.form for={@form} id="chat-form" phx-submit="send" class="flex items-end gap-2">
+            <span class="text-term-green select-none pb-1.5 font-bold">❯</span>
+            <textarea
+              id="chat-input"
+              name="content"
+              rows="2"
+              phx-hook=".ChatInput"
+              disabled={@running}
+              placeholder={if(@running, do: "waiting for response…", else: "type a message…")}
+              class="min-w-0 flex-1 resize-none bg-transparent py-1.5 text-term-fg placeholder:text-term-faint focus:outline-none disabled:opacity-50"
+            >{@form[:content].value}</textarea>
+            <button
+              id="chat-send"
+              type="submit"
+              disabled={@running}
+              class="rounded border border-term-border px-3 py-1.5 text-sm text-term-dim transition-colors hover:border-term-green/50 hover:text-term-green disabled:opacity-50 disabled:hover:border-term-border disabled:hover:text-term-dim cursor-pointer"
+            >
+              send ⏎
+            </button>
+          </.form>
+          <p class="mt-1 text-xs text-term-faint">enter to send · shift+enter for a newline</p>
+        </div>
+      <% else %>
+        <div class="flex flex-1 items-center justify-center">
+          <div class="space-y-2 text-center">
+            <p class="text-lg text-term-green font-bold">
+              banter<span class="banter-cursor">▊</span>
+            </p>
+            <p class="text-sm text-term-dim">a small harness for talking to LLMs</p>
+            <p class="text-sm text-term-faint">
+              pick a conversation, or
+              <button
+                id="empty-new-chat"
+                phx-click="new"
+                class="text-term-cyan hover:underline cursor-pointer"
+              >
+                start a new one
+              </button>
+            </p>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <script :type={Phoenix.LiveView.ColocatedHook} name=".AutoScroll">
+    export default {
+      mounted() {
+        this.pinned = true
+        this.scrollToBottom()
+        this.observer = new MutationObserver(() => {
+          if (this.pinned) this.scrollToBottom()
+        })
+        this.observer.observe(this.el, { childList: true, subtree: true, characterData: true })
+        this.el.addEventListener("scroll", () => {
+          this.pinned = this.el.scrollTop + this.el.clientHeight >= this.el.scrollHeight - 40
+        })
+      },
+      updated() {
+        if (this.pinned) this.scrollToBottom()
+      },
+      destroyed() {
+        this.observer.disconnect()
+      },
+      scrollToBottom() {
+        this.el.scrollTop = this.el.scrollHeight
+      }
+    }
+  </script>
+
+  <script :type={Phoenix.LiveView.ColocatedHook} name=".ChatInput">
+    export default {
+      mounted() {
+        this.el.focus()
+        this.el.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault()
+            this.el.form.requestSubmit()
+          }
+        })
+      }
+    }
+  </script>
+</Layouts.app>
