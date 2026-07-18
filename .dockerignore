@@ -1,0 +1,32 @@
+# Mix build artefacts
+/_build/
+/deps/
+/doc/
+/cover/
+
+# Git
+/.git/
+/.gitignore
+
+# Editor / tooling
+/.elixir_ls/
+/.expert/
+/.formatter.exs
+
+# Erlang
+erl_crash.dump
+*.ez
+.fetch
+banter-*.tar
+
+# Tests are not shipped in the prod release
+/test/
+
+# Rebuilt inside the image by `mix assets.deploy`
+/assets/node_modules/
+/priv/static/assets/
+/priv/static/cache_manifest.json
+
+# Misc
+/tmp/
+.DS_Store

@@ -69,3 +69,37 @@ out all sessions.
   are stubbed via `Req.Test`; conversations run against a scripted mock
   provider in `test/support/mock_llm.ex`)
 * `mix precommit` — compile with warnings as errors, format, and test
+
+## Deployment
+
+A multi-stage `Dockerfile` is included. Build and run:
+
+```sh
+docker build -t banter .
+
+docker run --rm -p 4000:4000 \
+  -e DATABASE_URL="ecto://USER:PASS@HOST/DATABASE" \
+  -e SECRET_KEY_BASE="$(mix phx.gen.secret)" \
+  -e PHX_HOST="your.host.example" \
+  -e LLM_API_KEY="$LLM_API_KEY" \
+  banter
+```
+
+The release itself does not run migrations; run them separately before
+starting the container (e.g. `mix ecto.migrate` from a one-off host that
+can reach the database, or a `mix release` init container, or a `psql`
+migration job).
+
+Required runtime environment variables:
+
+| Variable | Notes |
+| --- | --- |
+| `DATABASE_URL` | `ecto://USER:PASS@HOST/DATABASE` |
+| `SECRET_KEY_BASE` | generate with `mix phx.gen.secret`; used to sign cookies |
+| `PHX_HOST` | the public hostname (defaults to `example.com`) |
+| `LLM_API_KEY` | (or `OPENROUTER_API_KEY`) provider auth |
+| `LLM_BASE_URL` | defaults to OpenRouter; set for llama.cpp |
+| `LLM_MODEL` | defaults to `openai/gpt-4o-mini` |
+| `BRAVE_SEARCH_API_KEY` | required only if the `web_search` tool is enabled |
+
+The image exposes port 4000 and runs as the unprivileged `nobody` user.
