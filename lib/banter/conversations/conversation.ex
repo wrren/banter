@@ -12,7 +12,10 @@ defmodule Banter.Conversations.Conversation do
     field :model, :string
 
     belongs_to :user, Banter.Accounts.User
+    belongs_to :provider, Banter.Providers.Provider
+    belongs_to :llm_model, Banter.Providers.Model, source: :model_id
     has_many :messages, Banter.Conversations.Message
+    has_many :compaction_messages, Banter.Conversations.CompactionMessage
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -22,8 +25,8 @@ defmodule Banter.Conversations.Conversation do
   @doc false
   def changeset(conversation, attrs) do
     conversation
-    |> cast(attrs, [:title, :model])
-    |> validate_required([:title, :model])
+    |> cast(attrs, [:title, :model, :provider_id, :llm_model_id])
+    |> validate_required([:title])
     |> validate_length(:title, max: 120)
   end
 end

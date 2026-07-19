@@ -53,7 +53,13 @@ defmodule Banter.LLM.Mock do
 
       {:text, text} ->
         stream_text(text, Keyword.get(opts, :stream_to))
-        {:ok, %{"role" => "assistant", "content" => text, "tool_calls" => nil}}
+
+        {:ok, %{"role" => "assistant", "content" => text, "tool_calls" => nil},
+         %{
+           prompt_tokens: 10,
+           completion_tokens: String.length(text) |> div(4),
+           total_tokens: (10 + String.length(text)) |> div(4)
+         }}
 
       {:tool_call, name, args} ->
         {:ok,
@@ -61,7 +67,7 @@ defmodule Banter.LLM.Mock do
            "role" => "assistant",
            "content" => nil,
            "tool_calls" => [build_tool_call(name, args)]
-         }}
+         }, %{prompt_tokens: 10, completion_tokens: 5, total_tokens: 15}}
 
       {:error, reason} ->
         {:error, reason}

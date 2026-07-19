@@ -45,6 +45,10 @@ unless config_env() == :test do
     models: llm_models
 
   config :banter, Banter.Tools.WebSearch, api_key: System.get_env("BRAVE_SEARCH_API_KEY")
+
+  config :banter,
+         :api_key_encryption_key,
+         System.get_env("API_KEY_ENCRYPTION_KEY") || :crypto.strong_rand_bytes(32)
 end
 
 if config_env() == :dev do

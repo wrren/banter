@@ -7,6 +7,10 @@ defmodule Banter.LLM.OpenAI do
   event streaming. Configure in `config/runtime.exs` via the
   `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` and `LLM_MODELS` environment
   variables.
+
+  Per-call `:base_url` and `:api_key` options override the application
+  config, which is how database-backed providers (`Banter.Providers`)
+  are routed.
   """
   @behaviour Banter.LLM.Provider
 
@@ -25,7 +29,7 @@ defmodule Banter.LLM.OpenAI do
       try do
         messages
         |> request_body(model, Keyword.get(opts, :tools, []))
-        |> post(acc, stream_to)
+        |> post(acc, stream_to, opts)
       after
         Agent.stop(acc)
       end
@@ -42,18 +46,18 @@ defmodule Banter.LLM.OpenAI do
     end
   end
 
-  defp post(body, acc, stream_to) do
+  defp post(body, acc, stream_to, opts) do
     on_data = fn {:data, chunk}, {req, resp} ->
       process_chunk(acc, stream_to, chunk)
       {:cont, {req, resp}}
     end
 
     [
-      base_url: config(:base_url),
+      base_url: Keyword.get(opts, :base_url) || config(:base_url),
       url: "/chat/completions",
       json: body,
       into: on_data,
-      headers: headers(),
+      headers: headers(opts),
       retry: false,
       receive_timeout: config(:receive_timeout) || 120_000
     ]
@@ -62,7 +66,12 @@ defmodule Banter.LLM.OpenAI do
     |> Req.post()
     |> case do
       {:ok, %{status: status}} when status in 200..299 ->
-        {:ok, build_message(Agent.get(acc, & &1))}
+        state = Agent.get(acc, fn x -> x end)
+        result = build_result(state)
+
+        case result do
+          {message, usage} -> {:ok, message, usage}
+        end
 
       {:ok, %{status: status}} ->
         {:error, "LLM request failed (HTTP #{status}): #{error_detail(acc)}"}
@@ -72,8 +81,8 @@ defmodule Banter.LLM.OpenAI do
     end
   end
 
-  defp headers do
-    case config(:api_key) do
+  defp headers(opts) do
+    case Keyword.get(opts, :api_key) || config(:api_key) do
       nil -> []
       "" -> []
       key -> [{"authorization", "Bearer #{key}"}]
@@ -83,7 +92,7 @@ defmodule Banter.LLM.OpenAI do
   ## Streaming accumulation
 
   defp initial_state do
-    %{buffer: "", raw: "", content: "", tool_calls: %{}}
+    %{buffer: "", raw: "", content: "", tool_calls: %{}, usage: nil}
   end
 
   defp process_chunk(acc, stream_to, chunk) do
@@ -99,12 +108,45 @@ defmodule Banter.LLM.OpenAI do
   defp handle_event(_acc, _stream_to, "[DONE]"), do: :ok
 
   defp handle_event(acc, stream_to, event) do
-    with {:ok, decoded} <- Jason.decode(event),
-         %{"choices" => [%{"delta" => delta} | _]} <- decoded do
-      handle_delta(acc, stream_to, delta)
+    with {:ok, decoded} <- Jason.decode(event) do
+      if Map.has_key?(decoded, "usage") do
+        handle_usage(acc, decoded["usage"])
+      end
+
+      if Map.has_key?(decoded, "choices") do
+        case decoded do
+          %{"choices" => [%{"delta" => delta} | _]} ->
+            handle_delta(acc, stream_to, delta)
+
+          _ ->
+            :ok
+        end
+      else
+        :ok
+      end
     else
       _ -> :ok
     end
+  end
+
+  defp handle_usage(acc, usage) do
+    prompt_tokens = usage["prompt_tokens"] || usage["prompt_tokens"] || 0
+    completion_tokens = usage["completion_tokens"] || usage["completion_tokens"] || 0
+
+    total_tokens =
+      usage["total_tokens"] || usage["total_tokens"] || prompt_tokens + completion_tokens
+
+    Agent.update(
+      acc,
+      &%{
+        &1
+        | usage: %{
+            prompt_tokens: prompt_tokens,
+            completion_tokens: completion_tokens,
+            total_tokens: total_tokens
+          }
+      }
+    )
   end
 
   defp handle_delta(acc, stream_to, delta) do
@@ -167,6 +209,13 @@ defmodule Banter.LLM.OpenAI do
 
         Map.put(message, "tool_calls", ordered)
     end
+  end
+
+  defp build_result(state) do
+    %{content: content, tool_calls: tool_calls, usage: usage} = state
+    message = build_message(%{content: content, tool_calls: tool_calls})
+    usage_map = usage || %{prompt_tokens: 0, completion_tokens: 0, total_tokens: 0}
+    {message, usage_map}
   end
 
   defp error_detail(acc) do

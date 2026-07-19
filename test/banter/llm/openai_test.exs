@@ -34,7 +34,7 @@ defmodule Banter.LLM.OpenAITest do
       )
     end)
 
-    assert {:ok, message} =
+    assert {:ok, message, _usage} =
              OpenAI.chat([%{"role" => "user", "content" => "hi"}], stream_to: self())
 
     assert message == %{"role" => "assistant", "content" => "Hello world", "tool_calls" => nil}
@@ -66,7 +66,7 @@ defmodule Banter.LLM.OpenAITest do
       )
     end)
 
-    assert {:ok, message} = OpenAI.chat([], tools: tools, stream_to: self())
+    assert {:ok, message, _usage} = OpenAI.chat([], tools: tools, stream_to: self())
 
     assert %{
              "role" => "assistant",
@@ -96,7 +96,7 @@ defmodule Banter.LLM.OpenAITest do
       )
     end)
 
-    assert {:ok, message} = OpenAI.chat([], stream_to: self())
+    assert {:ok, message, _usage} = OpenAI.chat([], stream_to: self())
 
     assert %{"tool_calls" => [first, second]} = message
     assert first["id"] == "call_a"
@@ -124,6 +124,6 @@ defmodule Banter.LLM.OpenAITest do
       |> Plug.Conn.send_resp(200, sse([]))
     end)
 
-    assert {:ok, _} = OpenAI.chat([], model: "other-model", stream_to: self())
+    assert {:ok, _, _usage} = OpenAI.chat([], model: "other-model", stream_to: self())
   end
 end

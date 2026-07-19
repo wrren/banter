@@ -84,14 +84,38 @@ defmodule Banter.Conversations.Runner do
 
     broadcast(conversation.id, {:run_started, conversation.id})
 
-    case loop(conversation, user, max_iterations) do
+    case check_and_compact(conversation) do
       :ok ->
-        broadcast(conversation.id, {:run_finished, conversation.id})
-        :ok
+        case loop(conversation, user, max_iterations) do
+          :ok ->
+            broadcast(conversation.id, {:run_finished, conversation.id})
+            :ok
+
+          {:error, reason} ->
+            broadcast(conversation.id, {:run_failed, conversation.id, reason})
+            {:error, reason}
+        end
 
       {:error, reason} ->
         broadcast(conversation.id, {:run_failed, conversation.id, reason})
         {:error, reason}
+    end
+  end
+
+  defp check_and_compact(%Conversation{} = conversation) do
+    if Conversations.compaction_needed?(conversation) do
+      broadcast(conversation.id, {:compaction_started, conversation.id})
+
+      case Banter.Conversations.Compaction.compact(conversation) do
+        :ok ->
+          broadcast(conversation.id, {:compaction_finished, conversation.id})
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      :ok
     end
   end
 
@@ -100,19 +124,24 @@ defmodule Banter.Conversations.Runner do
   defp loop(%Conversation{} = conversation, user, iterations_left) do
     messages =
       conversation
-      |> Conversations.list_messages()
-      |> Conversations.messages_for_api()
+      |> Conversations.messages_for_api_with_compaction()
+
+    llm_opts = Conversations.llm_opts_for_conversation(conversation)
 
     with_forwarder(conversation.id, fn stream_to ->
-      LLM.chat(messages,
-        model: conversation.model,
-        tools: Tools.enabled_specs(user),
-        stream_to: stream_to
+      LLM.chat(
+        messages,
+        [
+          model: conversation.model,
+          tools: Tools.enabled_specs(user),
+          stream_to: stream_to
+        ] ++ llm_opts
       )
     end)
     |> case do
-      {:ok, response} ->
+      {:ok, response, usage} ->
         {:ok, message} = persist_assistant_message(conversation, response)
+        Conversations.create_message_usage(message, usage)
         broadcast(conversation.id, {:message_appended, message})
 
         case response["tool_calls"] do

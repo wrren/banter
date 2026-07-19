@@ -11,15 +11,12 @@ defmodule Banter.ConversationsTest do
   end
 
   describe "conversations" do
-    test "create_conversation/2 requires a model", %{user: user} do
-      assert {:error, changeset} = Conversations.create_conversation(user, %{})
-      assert %{model: ["can't be blank"]} = errors_on(changeset)
-    end
+    test "create_conversation/2 creates with default title and model", %{user: user} do
+      assert {:ok, conversation} =
+               Conversations.create_conversation(user, %{model: "gpt-4o-mini"})
 
-    test "create_conversation/2 defaults the title and sets the owner", %{user: user} do
-      conversation = conversation_fixture(user)
       assert conversation.title == Conversation.default_title()
-      assert conversation.user_id == user.id
+      assert conversation.model == "gpt-4o-mini"
     end
 
     test "list_conversations/1 returns the user's conversations, most recently active first", %{

@@ -7,7 +7,7 @@ defmodule BanterWeb.ChatLive do
 
   import BanterWeb.ChatComponents
 
-  alias Banter.{Conversations, LLM, Tools}
+  alias Banter.{Conversations, LLM, Providers, Tools}
   alias Banter.Conversations.{Conversation, Runner}
 
   @impl true
@@ -25,6 +25,7 @@ defmodule BanterWeb.ChatLive do
         running: false,
         status: nil,
         tools: Tools.list(user),
+        providers: Providers.list_providers(user.id),
         models: LLM.available_models(),
         form: to_form(%{"content" => ""}),
         page_title: "banter"
@@ -93,9 +94,10 @@ defmodule BanterWeb.ChatLive do
 
   def handle_event("new", _params, socket) do
     {:ok, conversation} =
-      Conversations.create_conversation(socket.assigns.current_scope.user, %{
-        model: LLM.default_model()
-      })
+      Conversations.create_conversation(
+        socket.assigns.current_scope.user,
+        default_conversation_attrs(socket.assigns.providers)
+      )
 
     {:noreply,
      socket
@@ -127,10 +129,10 @@ defmodule BanterWeb.ChatLive do
     {:noreply, assign(socket, :tools, Tools.list(user))}
   end
 
-  def handle_event("select_model", %{"model" => model}, socket) do
+  def handle_event("select_model", %{"model" => selection}, socket) do
     with %Conversation{} = conversation <- socket.assigns.conversation,
-         true <- model in socket.assigns.models do
-      {:ok, conversation} = Conversations.update_conversation(conversation, %{model: model})
+         {:ok, attrs} <- model_selection_attrs(selection, socket.assigns) do
+      {:ok, conversation} = Conversations.update_conversation(conversation, attrs)
       {:noreply, assign(socket, :conversation, conversation)}
     else
       _ -> {:noreply, socket}
@@ -192,6 +194,14 @@ defmodule BanterWeb.ChatLive do
     {:noreply, socket |> clear_draft() |> assign(running: false, status: nil)}
   end
 
+  def handle_info({:compaction_started, _id}, socket) do
+    {:noreply, assign(socket, :status, "compacting conversation…")}
+  end
+
+  def handle_info({:compaction_finished, _id}, socket) do
+    {:noreply, assign(socket, :status, "compaction complete")}
+  end
+
   def handle_info({:run_failed, _id, reason}, socket) do
     {:noreply,
      socket
@@ -205,6 +215,51 @@ defmodule BanterWeb.ChatLive do
   end
 
   ## Helpers
+
+  # Builds the conversation attrs for a model selection. Values prefixed
+  # with "db:" reference a stored model (and its provider); anything else
+  # is treated as a model id from the global provider config.
+  defp model_selection_attrs("db:" <> id, assigns) do
+    with {model_id, ""} <- Integer.parse(id),
+         {provider, model} <- find_db_model(assigns.providers, model_id),
+         true <- not is_nil(model) do
+      {:ok,
+       %{
+         model: model.name,
+         provider_id: provider.id,
+         llm_model_id: model.id
+       }}
+    else
+      _ -> :error
+    end
+  end
+
+  defp model_selection_attrs(model, assigns) do
+    if model in assigns.models do
+      {:ok, %{model: model, provider_id: nil, llm_model_id: nil}}
+    else
+      :error
+    end
+  end
+
+  defp find_db_model(providers, model_id) do
+    Enum.find_value(providers, {nil, nil}, fn provider ->
+      case Enum.find(provider.models, &(&1.id == model_id)) do
+        nil -> nil
+        model -> {provider, model}
+      end
+    end)
+  end
+
+  defp default_conversation_attrs(providers) do
+    case providers do
+      [%{models: [model | _]} = provider | _] ->
+        %{model: model.name, provider_id: provider.id, llm_model_id: model.id}
+
+      _ ->
+        %{model: LLM.default_model()}
+    end
+  end
 
   defp assign_conversation(socket, nil) do
     maybe_unsubscribe(socket, socket.assigns.conversation)

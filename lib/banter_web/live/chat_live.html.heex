@@ -82,13 +82,27 @@
             name="model"
             class="w-full cursor-pointer rounded border border-term-border bg-term-bg px-1.5 py-1 text-sm text-term-fg focus:border-term-dim focus:outline-none"
           >
-            <option
-              :for={model <- @models}
-              value={model}
-              selected={@conversation && @conversation.model == model}
-            >
-              {model}
-            </option>
+            <optgroup :for={provider <- @providers} label={provider.name}>
+              <option
+                :for={model <- provider.models}
+                value={"db:#{model.id}"}
+                selected={@conversation && @conversation.llm_model_id == model.id}
+              >
+                {model.name}
+              </option>
+            </optgroup>
+            <optgroup label="default">
+              <option
+                :for={model <- @models}
+                value={model}
+                selected={
+                  @conversation && is_nil(@conversation.llm_model_id) &&
+                    @conversation.model == model
+                }
+              >
+                {model}
+              </option>
+            </optgroup>
           </select>
         </form>
       </div>

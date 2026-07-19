@@ -23,8 +23,10 @@ defmodule Banter.Conversations.Message do
     field :content, :string
     field :tool_calls, {:array, :map}
     field :tool_call_id, :string
+    field :is_compacted, :boolean, default: false
 
     belongs_to :conversation, Banter.Conversations.Conversation
+    has_one :usage, Banter.Conversations.MessageUsage
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -34,7 +36,7 @@ defmodule Banter.Conversations.Message do
   @doc false
   def changeset(message, attrs) do
     message
-    |> cast(attrs, [:role, :content, :tool_calls, :tool_call_id])
+    |> cast(attrs, [:role, :content, :tool_calls, :tool_call_id, :is_compacted])
     |> validate_required([:role])
     |> validate_inclusion(:role, @roles)
     |> validate_content_or_tool_calls()
