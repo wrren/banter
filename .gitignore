@@ -38,3 +38,5 @@ npm-debug.log
 # Local environment overrides for docker-compose
 /.env
 
+.expert/
+.elixir-ls/
