@@ -272,6 +272,7 @@ defmodule BanterWeb.ChatLive do
       status: nil,
       page_title: "banter"
     )
+    |> refresh_conversations()
     |> stream(:messages, [], reset: true)
   end
 
@@ -287,6 +288,7 @@ defmodule BanterWeb.ChatLive do
       running: Runner.running?(conversation.id),
       page_title: conversation.title
     )
+    |> refresh_conversations()
     |> stream(:messages, Conversations.list_messages(conversation), reset: true)
   end
 
