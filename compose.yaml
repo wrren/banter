@@ -54,6 +54,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-openai/gpt-4o-mini}
       LLM_MODELS: ${LLM_MODELS:-}
       BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      API_KEY_ENCRYPTION_KEY: ${API_ENCRYPTION_KEY:-}
 
 volumes:
   banter_db:
