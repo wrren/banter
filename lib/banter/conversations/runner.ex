@@ -125,6 +125,7 @@ defmodule Banter.Conversations.Runner do
     messages =
       conversation
       |> Conversations.messages_for_api_with_compaction()
+      |> prepend_system_prompt()
 
     llm_opts = Conversations.llm_opts_for_conversation(conversation)
 
@@ -172,7 +173,7 @@ defmodule Banter.Conversations.Runner do
 
       broadcast(conversation.id, {:tool_call_started, tool_call})
 
-      {status, content} = execute_tool_call(user, tool_call)
+      {status, content} = execute_tool_call(conversation, user, tool_call)
 
       broadcast(conversation.id, {:tool_call_finished, id, name, status})
 
@@ -187,10 +188,14 @@ defmodule Banter.Conversations.Runner do
     end)
   end
 
-  defp execute_tool_call(user, %{"function" => %{"name" => name, "arguments" => arguments}}) do
+  defp execute_tool_call(conversation, user, %{
+         "function" => %{"name" => name, "arguments" => arguments}
+       }) do
     case Jason.decode(arguments || "{}") do
       {:ok, args} when is_map(args) ->
-        case Tools.execute(user, name, args) do
+        context = %{conversation: conversation}
+
+        case Tools.execute(user, name, args, context) do
           {:ok, result} -> {:ok, result}
           {:error, reason} -> {:error, "Error: #{reason}"}
         end
@@ -198,6 +203,20 @@ defmodule Banter.Conversations.Runner do
       _ ->
         {:error, "Error: could not parse tool arguments"}
     end
+  end
+
+  # The standing system prompt. It goes first, ahead of any compaction
+  # summaries, so the model's instructions are not diluted by history.
+  defp prepend_system_prompt(messages) do
+    [%{"role" => "system", "content" => system_prompt_text()} | messages]
+  end
+
+  defp system_prompt_text do
+    "You are Banter, a helpful assistant. " <>
+      "Use the update_conversation_title tool to give the conversation a " <>
+      "short, descriptive title once you understand the user's intent, and " <>
+      "again if the topic changes. Keep titles under 8 words and do not call " <>
+      "the tool more than necessary."
   end
 
   # Spawns a process that forwards streamed LLM deltas to PubSub, then

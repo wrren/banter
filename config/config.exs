@@ -13,7 +13,9 @@ config :banter,
 
 # Installed tools. To install a new tool, implement Banter.Tools.Tool and
 # add the module here; it can then be enabled/disabled from the UI.
-config :banter, :tools, [Banter.Tools.WebSearch, Banter.Tools.WebFetch]
+config :banter,
+       :tools,
+       [Banter.Tools.WebSearch, Banter.Tools.WebFetch, Banter.Tools.UpdateConversationTitle]
 
 # The LLM provider used to power conversations. Overridden in test.
 config :banter, :llm_provider, Banter.LLM.OpenAI

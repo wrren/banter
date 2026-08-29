@@ -25,6 +25,23 @@ defmodule Banter.Tools.Tool do
 
   The returned string is sent back to the LLM as the tool result, so
   prefer compact representations that minimise token usage.
+
+  This callback receives only the decoded arguments. Tools that need
+  run context (for example the active conversation) may instead define
+  `execute/2`, which `Banter.Tools.execute/4` prefers when present.
   """
   @callback execute(args :: map()) :: {:ok, String.t()} | {:error, String.t()}
+
+  @doc """
+  Optional context-aware execution.
+
+  `context` is a map supplied by the Runner; the current conversation is
+  available under the `:conversation` key. Define this callback (in place
+  of, or alongside, `execute/1`) when the tool needs run context. When a
+  tool defines both, this callback wins.
+  """
+  @callback execute(args :: map(), context :: map()) ::
+              {:ok, String.t()} | {:error, String.t()}
+
+  @optional_callbacks execute: 2
 end

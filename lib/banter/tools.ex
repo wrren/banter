@@ -111,15 +111,31 @@ defmodule Banter.Tools do
 
   Returns `{:ok, result}` or `{:error, message}`; the message is suitable
   for sending back to the LLM as the tool result.
+
+  An optional `context` map is forwarded to tools that implement the
+  context-aware `execute/2` callback (see `Banter.Tools.Tool`). Tools that
+  only implement `execute/1` never see it.
   """
-  def execute(user, name, args) when is_map(args) do
+  def execute(user, name, args, context \\ %{}) when is_map(args) and is_map(context) do
     with {:ok, module} <- fetch_tool(name),
          :ok <- ensure_enabled(user, name) do
       try do
-        module.execute(args)
+        dispatch_execute(module, name, args, context)
       rescue
         exception -> {:error, "tool #{name} crashed: #{Exception.message(exception)}"}
       end
+    end
+  end
+
+  # Tools may define either `execute/1` (args only) or `execute/2`
+  # (args + context). Prefer the context-aware callback when present so
+  # tools that need run context (e.g. the active conversation) can use it
+  # without breaking tools that do not.
+  defp dispatch_execute(module, _name, args, context) do
+    if function_exported?(module, :execute, 2) do
+      module.execute(args, context)
+    else
+      module.execute(args)
     end
   end
 

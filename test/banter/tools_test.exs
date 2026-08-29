@@ -13,7 +13,12 @@ defmodule Banter.ToolsTest do
   test "list/1 returns installed tools, enabled by default", %{user: user} do
     tools = Tools.list(user)
 
-    assert Enum.map(tools, & &1.name) == ["web_search", "web_fetch"]
+    assert Enum.map(tools, & &1.name) == [
+             "web_search",
+             "web_fetch",
+             "update_conversation_title"
+           ]
+
     assert Enum.all?(tools, & &1.enabled)
     assert Enum.all?(tools, &(is_binary(&1.description) and &1.description != ""))
   end
@@ -55,7 +60,7 @@ defmodule Banter.ToolsTest do
   test "enabled_specs/1 returns OpenAI tool specs for enabled tools only", %{user: user} do
     specs = Tools.enabled_specs(user)
 
-    assert length(specs) == 2
+    assert length(specs) == 3
 
     for spec <- specs do
       assert %{
@@ -64,12 +69,20 @@ defmodule Banter.ToolsTest do
              } = spec
 
       assert params["type"] == "object"
-      assert name in ["web_search", "web_fetch"]
+
+      assert name in [
+               "web_search",
+               "web_fetch",
+               "update_conversation_title"
+             ]
     end
 
     {:ok, _} = Tools.set_enabled(user, "web_search", false)
 
-    assert [%{"function" => %{"name" => "web_fetch"}}] = Tools.enabled_specs(user)
+    assert [
+             %{"function" => %{"name" => "web_fetch"}},
+             %{"function" => %{"name" => "update_conversation_title"}}
+           ] = Tools.enabled_specs(user)
   end
 
   test "execute/3 runs an enabled tool", %{user: user} do

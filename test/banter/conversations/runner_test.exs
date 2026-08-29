@@ -10,7 +10,11 @@ defmodule Banter.Conversations.RunnerTest do
 
   setup do
     original_tools = Application.get_env(:banter, :tools)
-    Application.put_env(:banter, :tools, [Banter.Tools.MockTool])
+
+    Application.put_env(:banter, :tools, [
+      Banter.Tools.MockTool,
+      Banter.Tools.UpdateConversationTitle
+    ])
 
     on_exit(fn ->
       Application.put_env(:banter, :tools, original_tools)
@@ -51,9 +55,19 @@ defmodule Banter.Conversations.RunnerTest do
 
     assert [call] = MockLLM.calls()
     assert call.model == "mock-model"
-    assert call.messages == [%{"role" => "user", "content" => "hello there"}]
 
-    assert [%{"function" => %{"name" => "mock_tool"}}] = call.tools
+    # the standing system prompt is prepended ahead of the history
+    assert [
+             %{"role" => "system", "content" => system_prompt},
+             %{"role" => "user", "content" => "hello there"}
+           ] = call.messages
+
+    assert system_prompt =~ "update_conversation_title"
+
+    assert [
+             %{"function" => %{"name" => "mock_tool"}},
+             %{"function" => %{"name" => "update_conversation_title"}}
+           ] = call.tools
   end
 
   test "a tool call round trip persists tool results and continues", %{
@@ -88,10 +102,12 @@ defmodule Banter.Conversations.RunnerTest do
     # the tool was executed with the decoded arguments
     assert MockTool.calls() == [%{"input" => "elixir"}]
 
-    # the second LLM call saw the tool result in its history
+    # the second LLM call saw the tool result in its history, with the
+    # standing system prompt prepended
     assert [_, second_call] = MockLLM.calls()
 
     assert [
+             %{"role" => "system"},
              %{"role" => "user"},
              %{"role" => "assistant", "tool_calls" => [_]},
              %{"role" => "tool", "content" => "mock search results"}
@@ -112,6 +128,57 @@ defmodule Banter.Conversations.RunnerTest do
 
     assert [%{role: "user"}, _, %{role: "tool", content: "Error: something broke"}, _] =
              Conversations.list_messages(conversation)
+  end
+
+  test "update_conversation_title sets the conversation title", %{conversation: conversation} do
+    MockLLM.set_script([
+      {:tool_call, "update_conversation_title", %{"title" => "Fixing the flaky test"}},
+      {:text, "Done, I renamed the conversation."}
+    ])
+
+    assert :ok = Runner.run(conversation.id)
+
+    assert_received {:tool_call_started,
+                     %{"function" => %{"name" => "update_conversation_title"}}}
+
+    assert_received {:tool_call_finished, _id, "update_conversation_title", :ok}
+
+    assert_received {:message_appended,
+                     %{role: "tool", content: "Conversation title set to: Fixing the flaky test"}}
+
+    assert_received {:run_finished, _}
+
+    # the title was persisted on the conversation
+    assert Conversations.get_conversation!(conversation.id).title == "Fixing the flaky test"
+
+    # the second LLM call saw the tool result in its history
+    assert [_, second_call] = MockLLM.calls()
+
+    assert [
+             %{"role" => "system"},
+             %{"role" => "user"},
+             %{"role" => "assistant", "tool_calls" => [_]},
+             %{"role" => "tool", "content" => "Conversation title set to: Fixing the flaky test"}
+           ] = second_call.messages
+  end
+
+  test "an invalid title from the tool is fed back as an error", %{conversation: conversation} do
+    MockLLM.set_script([
+      {:tool_call, "update_conversation_title", %{"title" => ""}},
+      {:text, "Sorry, that title was rejected."}
+    ])
+
+    assert :ok = Runner.run(conversation.id)
+
+    assert_received {:tool_call_finished, _id, "update_conversation_title", :error}
+
+    # the title was not changed and the error was fed back to the LLM
+    assert Conversations.get_conversation!(conversation.id).title == "test chat"
+
+    assert [%{role: "user"}, _, %{role: "tool", content: content}, _] =
+             Conversations.list_messages(conversation)
+
+    assert content =~ "must not be empty"
   end
 
   test "disabled tools produce an error result", %{
