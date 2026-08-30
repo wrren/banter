@@ -280,9 +280,6 @@
   <script :type={Phoenix.LiveView.ColocatedHook} name=".SidebarToggle">
     export default {
       mounted() {
-        // Only the collapse button is mounted: when the sidebar is
-        // collapsed the header (and this element) is replaced by the
-        // expand button, which carries the same hook name.
         const sidebar = document.getElementById("sidebar")
         const expand = document.getElementById("sidebar-expand")
 
@@ -301,10 +298,12 @@
           sidebar.style.display = "none"
         }
 
+        // inline listeners: bound to the element itself, so they survive
+        // LiveView re-creating the button on subsequent renders
         this.el.addEventListener("click", () => {
           sidebar.style.display = "none"
           localStorage.setItem("banter.sidebar", "collapsed")
-        })
+        }, true)
       }
     }
   </script>
