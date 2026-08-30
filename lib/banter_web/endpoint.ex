@@ -25,6 +25,11 @@ defmodule BanterWeb.Endpoint do
     from: :banter,
     gzip: not code_reloading?,
     only: BanterWeb.static_paths(),
+    # `phx.digest` rewrites root-level files (favicon.png, robots.txt) to
+    # hashed names (favicon-<hash>.png) served from the same path; the `only`
+    # list above only matches the literal original names, so `only_matching`
+    # (prefix match) is required to let the digested files through.
+    only_matching: ~w(assets fonts images favicon robots),
     raise_on_missing_only: code_reloading?
 
   # Code reloading can be explicitly enabled under the
