@@ -19,6 +19,7 @@
           </button>
           <button
             id="sidebar-collapse"
+            phx-hook=".SidebarToggle"
             title="Collapse sidebar"
             aria-label="Collapse sidebar"
             class="text-term-faint transition-colors hover:text-term-dim cursor-pointer"
@@ -155,6 +156,7 @@
         <header class="flex items-center gap-3 border-b border-term-border px-4 py-2">
           <button
             id="sidebar-expand"
+            phx-hook=".SidebarToggle"
             title="Expand sidebar"
             aria-label="Expand sidebar"
             class="hidden shrink-0 text-term-faint transition-colors hover:text-term-dim cursor-pointer"
@@ -275,36 +277,34 @@
     }
   </script>
 
-  <script :type={Phoenix.LiveView.ColocatedHook} name=".Sidebar">
+  <script :type={Phoenix.LiveView.ColocatedHook} name=".SidebarToggle">
     export default {
       mounted() {
+        // Only the collapse button is mounted: when the sidebar is
+        // collapsed the header (and this element) is replaced by the
+        // expand button, which carries the same hook name.
         const sidebar = document.getElementById("sidebar")
-        const collapse = document.getElementById("sidebar-collapse")
         const expand = document.getElementById("sidebar-expand")
 
-        if (localStorage.getItem("banter.sidebar") === "collapsed") {
-          this.collapse(sidebar, collapse, expand)
+        if (expand) {
+          // expand button: re-attach listeners each time it is mounted
+          expand.addEventListener("click", () => {
+            sidebar.style.display = "flex"
+            localStorage.setItem("banter.sidebar", "open")
+          })
+          return
         }
 
-        collapse.addEventListener("click", () => {
-          this.collapse(sidebar, collapse, expand)
+        // collapse button: apply a previously persisted collapsed state
+        // (initial page load, or a patch that re-mounted the header)
+        if (localStorage.getItem("banter.sidebar") === "collapsed") {
+          sidebar.style.display = "none"
+        }
+
+        this.el.addEventListener("click", () => {
+          sidebar.style.display = "none"
           localStorage.setItem("banter.sidebar", "collapsed")
         })
-
-        expand.addEventListener("click", () => {
-          this.expand(sidebar, collapse, expand)
-          localStorage.setItem("banter.sidebar", "open")
-        })
-      },
-      collapse(sidebar, collapse, expand) {
-        sidebar.style.display = "none"
-        collapse.classList.add("hidden")
-        expand.classList.remove("hidden")
-      },
-      expand(sidebar, collapse, expand) {
-        sidebar.style.display = "flex"
-        collapse.classList.remove("hidden")
-        expand.classList.add("hidden")
       }
     }
   </script>
