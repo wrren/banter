@@ -1,18 +1,31 @@
 <Layouts.app flash={@flash} current_scope={@current_scope}>
   <div class="flex h-full">
     <%!-- Sidebar --%>
-    <aside class="flex w-64 shrink-0 flex-col border-r border-term-border bg-term-panel">
-      <div class="flex items-center justify-between border-b border-term-border px-3 py-3">
-        <.link patch={~p"/"} class="text-term-green font-bold tracking-tight">
+    <aside
+      id="sidebar"
+      class="flex w-64 shrink-0 flex-col border-r border-term-border bg-term-panel"
+    >
+      <div class="flex items-center justify-between gap-2 border-b border-term-border px-3 py-3">
+        <.link patch={~p"/"} class="min-w-0 truncate text-term-green font-bold tracking-tight">
           banter<span class="banter-cursor">▊</span>
         </.link>
-        <button
-          id="new-chat"
-          phx-click="new"
-          class="rounded border border-term-border px-2 py-0.5 text-xs text-term-dim transition-colors hover:border-term-green/50 hover:text-term-green cursor-pointer"
-        >
-          + new
-        </button>
+        <div class="flex shrink-0 items-center gap-2">
+          <button
+            id="new-chat"
+            phx-click="new"
+            class="rounded border border-term-border px-2 py-0.5 text-xs text-term-dim transition-colors hover:border-term-green/50 hover:text-term-green cursor-pointer"
+          >
+            + new
+          </button>
+          <button
+            id="sidebar-collapse"
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
+            class="text-term-faint transition-colors hover:text-term-dim cursor-pointer"
+          >
+            <.icon name="hero-chevron-left" class="size-4" />
+          </button>
+        </div>
       </div>
 
       <nav id="conversations" phx-update="stream" class="flex-1 overflow-y-auto py-1">
@@ -137,16 +150,28 @@
     </aside>
 
     <%!-- Main panel --%>
-    <div class="flex min-w-0 flex-1 flex-col">
+    <div id="main-panel" class="flex min-w-0 flex-1 flex-col">
       <%= if @conversation do %>
         <header class="flex items-center gap-3 border-b border-term-border px-4 py-2">
+          <button
+            id="sidebar-expand"
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+            class="hidden shrink-0 text-term-faint transition-colors hover:text-term-dim cursor-pointer"
+          >
+            <.icon name="hero-chevron-right" class="size-4" />
+          </button>
           <h1 class="min-w-0 flex-1 truncate text-sm text-term-fg">{@conversation.title}</h1>
           <span id="current-model" class="shrink-0 text-xs text-term-faint">
             {@conversation.model}
           </span>
         </header>
 
-        <div id="chat-scroll" phx-hook=".AutoScroll" class="flex-1 overflow-y-auto py-2">
+        <div
+          id="chat-scroll"
+          phx-hook=".AutoScroll"
+          class="flex-1 overflow-y-auto py-2 text-[13px]"
+        >
           <div id="messages" phx-update="stream">
             <div id="messages-empty" class="hidden only:block px-4 py-2 text-sm text-term-faint">
               no messages yet — say hi
@@ -165,7 +190,7 @@
           <.run_status :if={@running && @status} status={@status} />
         </div>
 
-        <div class="border-t border-term-border px-4 py-3">
+        <div class="border-t border-term-border px-4 py-3 text-[13px]">
           <.form for={@form} id="chat-form" phx-submit="send" class="flex items-end gap-2">
             <span class="text-term-green select-none pb-1.5 font-bold">❯</span>
             <textarea
@@ -246,6 +271,40 @@
             this.el.form.requestSubmit()
           }
         })
+      }
+    }
+  </script>
+
+  <script :type={Phoenix.LiveView.ColocatedHook} name=".Sidebar">
+    export default {
+      mounted() {
+        const sidebar = document.getElementById("sidebar")
+        const collapse = document.getElementById("sidebar-collapse")
+        const expand = document.getElementById("sidebar-expand")
+
+        if (localStorage.getItem("banter.sidebar") === "collapsed") {
+          this.collapse(sidebar, collapse, expand)
+        }
+
+        collapse.addEventListener("click", () => {
+          this.collapse(sidebar, collapse, expand)
+          localStorage.setItem("banter.sidebar", "collapsed")
+        })
+
+        expand.addEventListener("click", () => {
+          this.expand(sidebar, collapse, expand)
+          localStorage.setItem("banter.sidebar", "open")
+        })
+      },
+      collapse(sidebar, collapse, expand) {
+        sidebar.style.display = "none"
+        collapse.classList.add("hidden")
+        expand.classList.remove("hidden")
+      },
+      expand(sidebar, collapse, expand) {
+        sidebar.style.display = "flex"
+        collapse.classList.remove("hidden")
+        expand.classList.add("hidden")
       }
     }
   </script>

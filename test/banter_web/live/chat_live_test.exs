@@ -51,7 +51,9 @@ defmodule BanterWeb.ChatLiveTest do
     test "renders the empty state and installed tools", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
+      assert has_element?(view, "#sidebar")
       assert has_element?(view, "#new-chat")
+      assert has_element?(view, "#sidebar-collapse")
       assert has_element?(view, "#empty-new-chat")
       assert has_element?(view, "#tool-toggle-web_search")
       assert has_element?(view, "#tool-toggle-web_fetch")
@@ -93,6 +95,17 @@ defmodule BanterWeb.ChatLiveTest do
   end
 
   describe "show" do
+    test "renders the conversation header with the sidebar toggle", %{
+      conn: conn,
+      conversation: conversation
+    } do
+      {:ok, view, _html} = live(conn, ~p"/c/#{conversation.id}")
+
+      assert has_element?(view, "#main-panel")
+      assert has_element?(view, "#sidebar-collapse")
+      assert has_element?(view, "#sidebar-expand")
+    }
+
     test "renders existing messages", %{conn: conn, conversation: conversation} do
       {:ok, _} =
         Conversations.create_message(conversation, %{role: "user", content: "hello there"})
