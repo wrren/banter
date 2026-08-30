@@ -67,7 +67,8 @@ defmodule Banter.ConversationsTest do
 
       assert {:ok, _} = Conversations.delete_conversation(conversation)
       assert_raise Ecto.NoResultsError, fn -> Conversations.get_conversation!(conversation.id) end
-      assert Repo.aggregate(Message, :count) == 0
+      query = from m in Message, where: m.conversation_id == ^conversation.id
+      assert Repo.aggregate(query, :count) == 0
     end
 
     test "deleting a user deletes their conversations", %{user: user} do

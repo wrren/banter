@@ -4,7 +4,7 @@ defmodule BanterWeb.ChatLiveTest do
   import Phoenix.LiveViewTest
   import Banter.TestFixtures
 
-  alias Banter.{Conversations, Repo, Tools}
+  alias Banter.{Conversations, Tools}
   alias Banter.Conversations.Runner
   alias Banter.LLM.Mock, as: MockLLM
   alias Banter.Tools.MockTool
@@ -104,7 +104,7 @@ defmodule BanterWeb.ChatLiveTest do
       assert has_element?(view, "#main-panel")
       assert has_element?(view, "#sidebar-collapse")
       assert has_element?(view, "#sidebar-expand")
-    }
+    end
 
     test "renders existing messages", %{conn: conn, conversation: conversation} do
       {:ok, _} =
@@ -333,7 +333,7 @@ defmodule BanterWeb.ChatLiveTest do
         Conversations.get_conversation!(conversation.id)
       end
 
-      refute Repo.aggregate(Banter.Conversations.Message, :count) > 0
+      assert [] = Banter.Conversations.list_messages(conversation)
     end
   end
 end
