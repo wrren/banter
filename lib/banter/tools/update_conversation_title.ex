@@ -18,6 +18,9 @@ defmodule Banter.Tools.UpdateConversationTitle do
   def name, do: "update_conversation_title"
 
   @impl true
+  def hidden?, do: true
+
+  @impl true
   def description do
     "Sets the title of the current conversation. Use it early in the " <>
       "conversation once you understand the user's intent, and again if " <>

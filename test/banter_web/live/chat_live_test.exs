@@ -55,6 +55,7 @@ defmodule BanterWeb.ChatLiveTest do
       assert has_element?(view, "#empty-new-chat")
       assert has_element?(view, "#tool-toggle-web_search")
       assert has_element?(view, "#tool-toggle-web_fetch")
+      refute has_element?(view, "#tool-toggle-update_conversation_title")
       assert has_element?(view, "#model-select")
     end
 

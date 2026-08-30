@@ -21,6 +21,11 @@ defmodule Banter.ToolsTest do
 
     assert Enum.all?(tools, & &1.enabled)
     assert Enum.all?(tools, &(is_binary(&1.description) and &1.description != ""))
+
+    hidden = Map.new(tools, &{&1.name, &1.hidden})
+    refute hidden["web_search"]
+    refute hidden["web_fetch"]
+    assert hidden["update_conversation_title"]
   end
 
   test "set_enabled/3 persists the state and toggles enabled?/2", %{user: user} do
@@ -83,6 +88,14 @@ defmodule Banter.ToolsTest do
              %{"function" => %{"name" => "web_fetch"}},
              %{"function" => %{"name" => "update_conversation_title"}}
            ] = Tools.enabled_specs(user)
+  end
+
+  test "enabled_specs/1 always includes hidden tools even when disabled", %{user: user} do
+    # the hidden tool has no ToolState row to toggle, but verify it stays in
+    # the specs regardless
+    specs = Tools.enabled_specs(user)
+
+    assert Enum.any?(specs, &(&1["function"]["name"] == "update_conversation_title"))
   end
 
   test "execute/3 runs an enabled tool", %{user: user} do

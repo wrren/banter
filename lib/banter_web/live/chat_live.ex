@@ -24,7 +24,7 @@ defmodule BanterWeb.ChatLive do
         draft_tail: "",
         running: false,
         status: nil,
-        tools: Tools.list(user),
+        tools: visible_tools(user),
         providers: Providers.list_providers(user.id),
         models: LLM.available_models(),
         form: to_form(%{"content" => ""}),
@@ -126,7 +126,7 @@ defmodule BanterWeb.ChatLive do
       {:ok, _state} = Tools.set_enabled(user, name, not tool.enabled)
     end
 
-    {:noreply, assign(socket, :tools, Tools.list(user))}
+    {:noreply, assign(socket, :tools, visible_tools(user))}
   end
 
   def handle_event("select_model", %{"model" => selection}, socket) do
@@ -211,10 +211,14 @@ defmodule BanterWeb.ChatLive do
   end
 
   def handle_info({:tool_toggled, _state}, socket) do
-    {:noreply, assign(socket, :tools, Tools.list(socket.assigns.current_scope.user))}
+    {:noreply, assign(socket, :tools, visible_tools(socket.assigns.current_scope.user))}
   end
 
   ## Helpers
+
+  # Tools shown in the sidebar panel: hidden tools are always enabled and
+  # never appear in the UI.
+  defp visible_tools(user), do: Enum.reject(Tools.list(user), & &1.hidden)
 
   # Builds the conversation attrs for a model selection. Values prefixed
   # with "db:" reference a stored model (and its provider); anything else

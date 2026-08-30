@@ -33,7 +33,13 @@ defmodule Banter.Tools do
   @doc """
   Lists installed tools together with the user's enabled state, as maps:
 
-      %{module: module, name: binary, description: binary, enabled: boolean}
+      %{
+        module: module,
+        name: binary,
+        description: binary,
+        enabled: boolean,
+        hidden: boolean
+      }
   """
   def list(user) do
     states = Map.new(Repo.all(from ToolState, where: [user_id: ^user.id]), &{&1.name, &1.enabled})
@@ -45,7 +51,8 @@ defmodule Banter.Tools do
         module: module,
         name: name,
         description: module.description(),
-        enabled: Map.get(states, name, true)
+        enabled: Map.get(states, name, true),
+        hidden: tool_hidden?(module)
       }
     end
   end
@@ -91,18 +98,23 @@ defmodule Banter.Tools do
 
   @doc """
   Returns the OpenAI-format tool specs for the user's enabled tools.
+
+  Hidden tools are always included (they are installed and enabled by
+  default and cannot be disabled from the UI).
   """
   def enabled_specs(user) do
-    for %{enabled: true} = tool <- list(user) do
-      %{
-        "type" => "function",
-        "function" => %{
-          "name" => tool.name,
-          "description" => tool.description,
-          "parameters" => tool.module.parameters()
-        }
+    for tool <- list(user), tool.enabled or tool.hidden, do: spec_for(tool)
+  end
+
+  defp spec_for(tool) do
+    %{
+      "type" => "function",
+      "function" => %{
+        "name" => tool.name,
+        "description" => tool.description,
+        "parameters" => tool.module.parameters()
       }
-    end
+    }
   end
 
   @doc """
@@ -148,6 +160,10 @@ defmodule Banter.Tools do
 
   defp ensure_enabled(user, name) do
     if enabled?(user, name), do: :ok, else: {:error, "tool #{name} is disabled"}
+  end
+
+  defp tool_hidden?(module) do
+    function_exported?(module, :hidden?, 0) and module.hidden?()
   end
 
   defp topic(user), do: "tools:#{user.id}"

@@ -9,6 +9,9 @@ defmodule Banter.Tools.Tool do
        `config :banter, :tools, [MyApp.Tools.MyTool]`.
 
   The tool then appears in the UI where it can be enabled or disabled.
+  Tools that should always be enabled and never shown in the UI (for
+  example an internal "update the conversation title" tool) may implement
+  the optional `hidden?/0` callback returning `true`.
   """
 
   @doc "The unique tool name, as sent to and received from the LLM."
@@ -43,5 +46,13 @@ defmodule Banter.Tools.Tool do
   @callback execute(args :: map(), context :: map()) ::
               {:ok, String.t()} | {:error, String.t()}
 
-  @optional_callbacks execute: 2
+  @doc """
+  Optional. Returns `true` when the tool should not appear in the UI tool
+  panel. Hidden tools remain installed and enabled by default (they cannot
+  be toggled from the UI), but are still sent to the LLM and can be
+  executed. Defaults to `false` when not implemented.
+  """
+  @callback hidden?() :: boolean
+
+  @optional_callbacks execute: 2, hidden?: 0
 end
