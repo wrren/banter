@@ -6,6 +6,7 @@ defmodule BanterWeb.ChatLive do
   use BanterWeb, :live_view
 
   import BanterWeb.ChatComponents
+  alias Phoenix.LiveView.JS
 
   alias Banter.{Conversations, LLM, Providers, Tools}
   alias Banter.Conversations.{Conversation, Runner}

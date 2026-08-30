@@ -106,6 +106,22 @@ defmodule BanterWeb.ChatLiveTest do
       assert has_element?(view, "#sidebar-expand")
     end
 
+    test "the sidebar toggle buttons carry the collapse/expand JS commands", %{
+      conn: conn,
+      conversation: conversation
+    } do
+      {:ok, view, _html} = live(conn, ~p"/c/#{conversation.id}")
+      html = render(view)
+
+      # collapse: hide the sidebar, reveal the expand button
+      assert html =~
+               ~s|id="sidebar-collapse" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;sidebar:toggle&quot;}],[&quot;hide&quot;,{&quot;to&quot;:&quot;#sidebar&quot;}],[&quot;remove_class&quot;,{&quot;names&quot;:[&quot;hidden&quot;],&quot;to&quot;:&quot;#sidebar-expand&quot;}]]"|
+
+      # expand: show the sidebar, hide itself
+      assert html =~
+               ~s|id="sidebar-expand" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;sidebar:toggle&quot;}],[&quot;show&quot;,{&quot;to&quot;:&quot;#sidebar&quot;}],[&quot;add_class&quot;,{&quot;names&quot;:[&quot;hidden&quot;],&quot;to&quot;:&quot;#sidebar-expand&quot;}]]"|
+    end
+
     test "renders existing messages", %{conn: conn, conversation: conversation} do
       {:ok, _} =
         Conversations.create_message(conversation, %{role: "user", content: "hello there"})
